@@ -14,6 +14,9 @@ class EloquentProductRepository implements ProductRepositoryInterface
         return Product::query()
             ->active()
             ->fromActiveVendor()
+            // Eager-load what ProductResource renders. Two extra queries total,
+            // not one-per-row — keeps the list endpoint O(1) in query count.
+            ->with(['category', 'vendor'])
             ->when(
                 isset($filters['category_id']),
                 fn ($q) => $q->where('category_id', $filters['category_id']),
@@ -42,7 +45,10 @@ class EloquentProductRepository implements ProductRepositoryInterface
 
     public function forVendor(int $vendorId): Collection
     {
-        return Product::where('vendor_id', $vendorId)->latest('id')->get();
+        return Product::with(['category', 'vendor'])
+            ->where('vendor_id', $vendorId)
+            ->latest('id')
+            ->get();
     }
 
     public function create(array $attributes): Product
