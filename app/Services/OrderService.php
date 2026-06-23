@@ -9,6 +9,7 @@ use App\Events\OrderPlaced;
 use App\Exceptions\InvalidFulfillmentTransitionException;
 use App\Exceptions\OutOfStockException;
 use App\Exceptions\PaymentFailedException;
+use App\Exceptions\VendorUnavailableException;
 use App\Jobs\SendOrderConfirmation;
 use App\Models\Cart;
 use App\Models\Order;
@@ -165,6 +166,14 @@ class OrderService
                     requested: $item->quantity,
                     available: $product?->stock ?? 0,
                 );
+            }
+
+            // A product can sit in a cart from before its vendor was suspended
+            // (or its listing deactivated). The storefront hides it, but the
+            // cart is a separate snapshot — so re-check sellability here, under
+            // the same lock, before it becomes an order line nobody can fulfil.
+            if (! $product->isPubliclyVisible()) {
+                throw new VendorUnavailableException($product);
             }
 
             $lineTotal = bcmul((string) $product->price, (string) $item->quantity, 2);
