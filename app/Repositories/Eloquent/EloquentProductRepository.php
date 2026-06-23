@@ -13,6 +13,7 @@ class EloquentProductRepository implements ProductRepositoryInterface
     {
         return Product::query()
             ->active()
+            ->fromActiveVendor()
             ->when(
                 isset($filters['category_id']),
                 fn ($q) => $q->where('category_id', $filters['category_id']),

@@ -62,4 +62,24 @@ class Product extends Model
     {
         $query->where('is_active', true);
     }
+
+    /**
+     * Limit to products whose vendor is currently active. A suspended vendor's
+     * catalogue must drop out of the storefront even though the rows remain.
+     *
+     * @param  Builder<Product>  $query
+     */
+    public function scopeFromActiveVendor(Builder $query): void
+    {
+        $query->whereHas('vendor', fn (Builder $q) => $q->where('status', Vendor::STATUS_ACTIVE));
+    }
+
+    /**
+     * The storefront visibility rule, in one place so the list query and the
+     * single-product guard can't drift apart.
+     */
+    public function isPubliclyVisible(): bool
+    {
+        return $this->is_active && $this->vendor->isActive();
+    }
 }

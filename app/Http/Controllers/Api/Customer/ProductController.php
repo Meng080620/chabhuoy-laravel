@@ -13,8 +13,7 @@ class ProductController extends Controller
 {
     public function __construct(
         private readonly ProductRepositoryInterface $products,
-    ) {
-    }
+    ) {}
 
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -30,6 +29,12 @@ class ProductController extends Controller
 
     public function show(Product $product): ProductResource
     {
-        return ProductResource::make($product->load(['category', 'vendor']));
+        $product->load(['category', 'vendor']);
+
+        // Inactive products and suspended vendors' listings are invisible to
+        // the storefront — 404 even when the UUID is known directly.
+        abort_unless($product->isPubliclyVisible(), 404);
+
+        return ProductResource::make($product);
     }
 }
