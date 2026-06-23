@@ -1,12 +1,59 @@
-# API Testing Reference
+# Marketplace API — Testing Reference
 
-Multi-vendor marketplace API. All routes are prefixed with `/api`. Auth is **Laravel Sanctum bearer tokens** — pass `Authorization: Bearer <token>`.
-Token abilities are role-scoped (`register`/`login` issue them automatically): customer → `customer:*`, vendor → `vendor:manage`, admin → `admin:manage`. A vendor token cannot hit admin routes, etc.
+> Multi-vendor marketplace REST API. This README is a hands-on testing guide: every endpoint, what it expects, and a copy-paste `curl` to exercise it.
+
+**Stack:** Laravel · Sanctum (bearer tokens) · role-scoped abilities (customer / vendor / admin).
+
+---
+
+## Table of contents
+
+- [Getting started](#getting-started)
+- [Authentication](#authentication)
+- [Endpoint list](#endpoint-list)
+- [Request samples (curl)](#request-samples-curl)
+  - [Auth](#auth)
+  - [Products (public)](#products-public)
+  - [Cart (customer)](#cart-customer)
+  - [Orders (customer)](#orders-customer)
+  - [Vendor](#vendor)
+  - [Admin](#admin)
+- [Enum / value cheat sheet](#enum--value-cheat-sheet)
+- [Typical test flow](#typical-test-flow)
+- [Notes & gotchas](#notes--gotchas)
+
+---
+
+## Getting started
 
 ```bash
+# 1. Serve the API
+php artisan serve            # http://localhost:8000
+
+# 2. Set shell variables used by every sample below
 BASE=http://localhost:8000/api      # adjust to your host
 TOKEN=                              # paste the token from /login or /register
 ```
+
+All routes are prefixed with `/api`. Send `Accept: application/json` on every request so Laravel returns JSON (including validation errors) instead of HTML.
+
+---
+
+## Authentication
+
+Auth is **Laravel Sanctum bearer tokens** — pass `Authorization: Bearer <token>` on protected routes.
+
+Token abilities are **role-scoped** and issued automatically by `register` / `login`:
+
+| Role | Abilities | Can reach |
+|------|-----------|-----------|
+| customer | `customer:*` | cart, orders, public routes |
+| vendor | `vendor:manage` | `/vendor/*` (also needs an **active** vendor) |
+| admin | `admin:manage` | `/admin/*` |
+
+A token only carries its own role's abilities — a vendor token gets `403` on admin routes, and vice versa.
+
+---
 
 ## Endpoint list
 
@@ -78,7 +125,7 @@ curl -s "$BASE/products?search=shirt&category_id=1&per_page=10" -H "Accept: appl
 curl -s $BASE/products/1 -H "Accept: application/json"
 ```
 
-### Cart (customer token)
+### Cart (customer)
 
 **7. Show cart**
 ```bash
@@ -98,7 +145,7 @@ curl -s -X PUT $BASE/cart \
 curl -s -X DELETE $BASE/cart/1 -H "Accept: application/json" -H "Authorization: Bearer $TOKEN"
 ```
 
-### Orders (customer token)
+### Orders (customer)
 
 **10. List orders**
 ```bash
@@ -118,7 +165,9 @@ curl -s -X POST $BASE/orders \
 curl -s $BASE/orders/1 -H "Accept: application/json" -H "Authorization: Bearer $TOKEN"
 ```
 
-### Vendor (vendor token — needs `vendor:manage` + active vendor)
+### Vendor
+
+> Needs a `vendor:manage` token **and** an active vendor (`EnsureVendorRole` rejects non-active vendors).
 
 **13. List my products**
 ```bash
@@ -159,7 +208,9 @@ curl -s -X PATCH $BASE/vendor/orders/1 \
   -d '{"status":"shipped"}'
 ```
 
-### Admin (admin token — needs `admin:manage`)
+### Admin
+
+> Needs an `admin:manage` token.
 
 **19. List vendors** — `?status=pending|active|suspended` filters the queue; `per_page` default 20.
 ```bash
@@ -183,13 +234,25 @@ curl -s $BASE/admin/reports/sales -H "Accept: application/json" -H "Authorizatio
 ---
 
 ## Enum / value cheat sheet
-- **payment_method**: `card`, `qr`, `cod`  (cod = no immediate capture)
-- **fulfillment status** (per line): `pending` → `shipped` → `delivered`; `cancelled` is terminal. Vendor endpoint accepts only `shipped`/`delivered`.
-- **vendor status**: `pending`, `active`, `suspended`  (non-active vendors are rejected by `EnsureVendorRole`)
+
+| Field | Allowed values | Notes |
+|-------|----------------|-------|
+| `payment_method` | `card`, `qr`, `cod` | `cod` = no immediate capture |
+| fulfillment `status` (per line) | `pending` → `shipped` → `delivered`; `cancelled` (terminal) | vendor endpoint accepts only `shipped` / `delivered` |
+| vendor `status` | `pending`, `active`, `suspended` | non-active vendors rejected by `EnsureVendorRole` |
+
+---
 
 ## Typical test flow
+
 1. `POST /register` (customer) → save token → seed cart (`PUT /cart`) → `POST /orders`.
 2. Login as a **vendor** (seeded/active) → `GET /vendor/orders` → `PATCH /vendor/orders/{id}` `{"status":"shipped"}`.
 3. Login as **admin** → `PATCH /admin/vendors/{id}` `{"status":"active"}` → `GET /admin/reports/sales`.
 
-> Vendor/admin accounts aren't created via `/register` (that only mints customers). Seed them, or set `role` + an active `Vendor` row directly in the DB.
+---
+
+## Notes & gotchas
+
+- **`/register` only mints customers.** Vendor/admin accounts must be seeded, or set `role` + an active `Vendor` row directly in the DB.
+- **403 vs 404 on vendor orders:** `PATCH /vendor/orders/{id}` returns `404` (not `403`) when the vendor has no line on that order — so other customers' orders aren't leaked.
+- **Validation errors** return `422` with a `{ "message", "errors": {...} }` body — send `Accept: application/json` to see them.

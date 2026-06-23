@@ -30,4 +30,13 @@ class Category extends Model
     {
         return $this->hasMany(Category::class, 'parent_id');
     }
+
+    /**
+     * Resolve route bindings by the human-readable, unique slug rather than the
+     * numeric id — gives clean storefront URLs (/categories/electronics).
+     */
+    public function getRouteKeyName(): string
+    {
+        return 'slug';
+    }
 }
