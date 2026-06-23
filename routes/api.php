@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Admin\ReportController;
+use App\Http\Controllers\Api\Admin\VendorController as AdminVendorController;
 use App\Http\Controllers\Api\Customer\AuthController;
 use App\Http\Controllers\Api\Customer\CartController;
 use App\Http\Controllers\Api\Customer\OrderController;
@@ -58,5 +59,7 @@ Route::middleware('auth:sanctum')->group(function () {
     */
     Route::middleware(['admin', 'abilities:admin:manage'])->prefix('admin')->group(function () {
         Route::get('reports/sales', [ReportController::class, 'sales']);
+        Route::get('vendors', [AdminVendorController::class, 'index']);
+        Route::patch('vendors/{vendor}', [AdminVendorController::class, 'updateStatus']);
     });
 });
