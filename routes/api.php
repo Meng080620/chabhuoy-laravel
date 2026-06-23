@@ -48,6 +48,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('products', VendorProductController::class)
             ->only(['index', 'store', 'update', 'destroy']);
         Route::get('orders', [VendorOrderController::class, 'index']);
+        Route::patch('orders/{order}', [VendorOrderController::class, 'update']);
     });
 
     /*

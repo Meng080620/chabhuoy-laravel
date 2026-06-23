@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\FulfillmentStatus;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -15,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'quantity',
     'unit_price',
     'line_total',
+    'status',
 ])]
 class OrderItem extends Model
 {
@@ -27,6 +29,7 @@ class OrderItem extends Model
             'quantity' => 'integer',
             'unit_price' => 'decimal:2',
             'line_total' => 'decimal:2',
+            'status' => FulfillmentStatus::class,
         ];
     }
 

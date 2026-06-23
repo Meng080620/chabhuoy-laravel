@@ -2,14 +2,19 @@
 
 namespace App\Services;
 
+use App\Enums\FulfillmentStatus;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentMethod;
 use App\Events\OrderPlaced;
+use App\Exceptions\InvalidFulfillmentTransitionException;
 use App\Exceptions\OutOfStockException;
+use App\Exceptions\PaymentFailedException;
 use App\Jobs\SendOrderConfirmation;
 use App\Models\Cart;
 use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\User;
+use App\Models\Vendor;
 use App\Repositories\Contracts\OrderRepositoryInterface;
 use App\Repositories\Contracts\ProductRepositoryInterface;
 use Illuminate\Support\Facades\DB;
@@ -21,8 +26,7 @@ class OrderService
         private readonly OrderRepositoryInterface $orders,
         private readonly ProductRepositoryInterface $products,
         private readonly PaymentService $payment,
-    ) {
-    }
+    ) {}
 
     /**
      * Turn the user's cart into a paid order.
@@ -33,7 +37,7 @@ class OrderService
      * listener), and the confirmation job is queued for *after* commit.
      *
      * @throws OutOfStockException
-     * @throws \App\Exceptions\PaymentFailedException
+     * @throws PaymentFailedException
      */
     public function placeFromCart(User $user, PaymentMethod $method): Order
     {
@@ -71,6 +75,75 @@ class OrderService
         SendOrderConfirmation::dispatch($order)->afterCommit();
 
         return $order;
+    }
+
+    /**
+     * Advance a single vendor's lines on an order to the target fulfillment
+     * status, then recompute the order-level rollup.
+     *
+     * Only the vendor's own lines are touched, so on a shared (multi-vendor)
+     * order one vendor shipping never marks another vendor's items shipped.
+     * Lines are locked for the duration so two concurrent updates can't race
+     * the rollup. Idempotent: a line already at the target is skipped.
+     *
+     * @throws InvalidFulfillmentTransitionException
+     */
+    public function fulfilVendorLines(Order $order, Vendor $vendor, FulfillmentStatus $target): Order
+    {
+        return DB::transaction(function () use ($order, $vendor, $target): Order {
+            $lines = $order->items()
+                ->where('vendor_id', $vendor->id)
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($lines as $line) {
+                if ($line->status === $target) {
+                    continue;
+                }
+
+                if (! $line->status->canTransitionTo($target)) {
+                    throw new InvalidFulfillmentTransitionException($line->status, $target);
+                }
+
+                $line->update(['status' => $target]);
+            }
+
+            $this->syncOrderStatusFromLines($order);
+
+            return $order->fresh('items');
+        });
+    }
+
+    /**
+     * Derive the order's coarse status from its line statuses. The order is
+     * Shipped only once every (non-cancelled) line has shipped, Delivered only
+     * once every line is delivered — a partially-shipped order stays as-is.
+     */
+    private function syncOrderStatusFromLines(Order $order): void
+    {
+        $lines = $order->items()->get(['status'])
+            ->reject(fn (OrderItem $i) => $i->status === FulfillmentStatus::Cancelled);
+
+        if ($lines->isEmpty()) {
+            return;
+        }
+
+        $rollup = match (true) {
+            $lines->every(fn (OrderItem $i) => $i->status === FulfillmentStatus::Delivered) => OrderStatus::Delivered,
+            $lines->every(fn (OrderItem $i) => in_array(
+                $i->status,
+                [FulfillmentStatus::Shipped, FulfillmentStatus::Delivered],
+                true,
+            )) => OrderStatus::Shipped,
+            default => null,
+        };
+
+        if ($rollup !== null
+            && $order->status !== $rollup
+            && $order->status->canTransitionTo($rollup)
+        ) {
+            $order->update(['status' => $rollup]);
+        }
     }
 
     /**

@@ -24,6 +24,7 @@ class OrderResource extends JsonResource
                 'quantity' => $item->quantity,
                 'unit_price' => $item->unit_price,
                 'line_total' => $item->line_total,
+                'status' => $item->status->value,
             ])),
         ];
     }
