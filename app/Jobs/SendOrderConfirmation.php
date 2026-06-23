@@ -3,9 +3,9 @@
 namespace App\Jobs;
 
 use App\Models\Order;
+use App\Notifications\OrderConfirmation;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
-use Illuminate\Support\Facades\Log;
 
 class SendOrderConfirmation implements ShouldQueue
 {
@@ -15,16 +15,12 @@ class SendOrderConfirmation implements ShouldQueue
 
     public int $backoff = 30;
 
-    public function __construct(public readonly Order $order)
-    {
-    }
+    public function __construct(public readonly Order $order) {}
 
     public function handle(): void
     {
-        // TODO: send a real notification (Mail / Telegram / SMS).
-        Log::info('Order confirmation dispatched', [
-            'order_uuid' => $this->order->uuid,
-            'user_id' => $this->order->user_id,
-        ]);
+        $this->order->loadMissing('user');
+
+        $this->order->user?->notify(new OrderConfirmation($this->order));
     }
 }
