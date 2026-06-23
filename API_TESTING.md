@@ -14,6 +14,7 @@
 - [Request samples (curl)](#request-samples-curl)
   - [Auth](#auth)
   - [Products (public)](#products-public)
+  - [Categories (public)](#categories-public)
   - [Cart (customer)](#cart-customer)
   - [Orders (customer)](#orders-customer)
   - [Vendor](#vendor)
@@ -65,21 +66,23 @@ A token only carries its own role's abilities — a vendor token gets `403` on a
 | 4 | GET | `/me` | any token | Current authenticated user | — |
 | 5 | GET | `/products` | public | List/paginate products; filter by category/vendor/search | query: `category_id?`, `vendor_id?`, `search?`, `per_page?`=20 |
 | 6 | GET | `/products/{product}` | public | Single product with category + vendor | path: `product` (id) |
-| 7 | GET | `/cart` | customer | Show current cart lines | — |
-| 8 | PUT | `/cart` | customer | Upsert a cart line (absolute quantity) | body: `product_id`, `quantity` (1–99) |
-| 9 | DELETE | `/cart/{productId}` | customer | Remove a product from the cart | path: `productId` |
-| 10 | GET | `/orders` | customer | List the caller's orders | query: `per_page?`=20 |
-| 11 | POST | `/orders` | customer | Place an order from the cart | body: `payment_method` (`card`\|`qr`\|`cod`) |
-| 12 | GET | `/orders/{order}` | customer | Show one of the caller's orders | path: `order` (id) |
-| 13 | GET | `/vendor/products` | vendor | List this vendor's products | — |
-| 14 | POST | `/vendor/products` | vendor | Create a product | body: `name`, `category_id`, `price`, `stock`, `description?`, `low_stock_threshold?`, `is_active?` |
-| 15 | PUT/PATCH | `/vendor/products/{product}` | vendor | Update a product | path: `product` + any create field (partial) |
-| 16 | DELETE | `/vendor/products/{product}` | vendor | Delete a product | path: `product` |
-| 17 | GET | `/vendor/orders` | vendor | Orders containing this vendor's lines | query: `per_page?`=20 |
-| 18 | PATCH | `/vendor/orders/{order}` | vendor | Advance this vendor's lines (shipped/delivered) | path: `order` + body: `status` (`shipped`\|`delivered`) |
-| 19 | GET | `/admin/vendors` | admin | List vendors; `?status=pending` = approval queue | query: `status?` (`pending`\|`active`\|`suspended`), `per_page?`=20 |
-| 20 | PATCH | `/admin/vendors/{vendor}` | admin | Set vendor status | path: `vendor` + body: `status` (`pending`\|`active`\|`suspended`) |
-| 21 | GET | `/admin/reports/sales` | admin | Platform sales summary | — |
+| 7 | GET | `/categories` | public | Category tree: top-level categories + children (not paginated) | — |
+| 8 | GET | `/categories/{category}` | public | Single category with immediate children | path: `category` (**slug**) |
+| 9 | GET | `/cart` | customer | Show current cart lines | — |
+| 10 | PUT | `/cart` | customer | Upsert a cart line (absolute quantity) | body: `product_id`, `quantity` (1–99) |
+| 11 | DELETE | `/cart/{productId}` | customer | Remove a product from the cart | path: `productId` |
+| 12 | GET | `/orders` | customer | List the caller's orders | query: `per_page?`=20 |
+| 13 | POST | `/orders` | customer | Place an order from the cart | body: `payment_method` (`card`\|`qr`\|`cod`) |
+| 14 | GET | `/orders/{order}` | customer | Show one of the caller's orders | path: `order` (id) |
+| 15 | GET | `/vendor/products` | vendor | List this vendor's products | — |
+| 16 | POST | `/vendor/products` | vendor | Create a product | body: `name`, `category_id`, `price`, `stock`, `description?`, `low_stock_threshold?`, `is_active?` |
+| 17 | PUT/PATCH | `/vendor/products/{product}` | vendor | Update a product | path: `product` + any create field (partial) |
+| 18 | DELETE | `/vendor/products/{product}` | vendor | Delete a product | path: `product` |
+| 19 | GET | `/vendor/orders` | vendor | Orders containing this vendor's lines | query: `per_page?`=20 |
+| 20 | PATCH | `/vendor/orders/{order}` | vendor | Advance this vendor's lines (shipped/delivered) | path: `order` + body: `status` (`shipped`\|`delivered`) |
+| 21 | GET | `/admin/vendors` | admin | List vendors; `?status=pending` = approval queue | query: `status?` (`pending`\|`active`\|`suspended`), `per_page?`=20 |
+| 22 | PATCH | `/admin/vendors/{vendor}` | admin | Set vendor status | path: `vendor` + body: `status` (`pending`\|`active`\|`suspended`) |
+| 23 | GET | `/admin/reports/sales` | admin | Platform sales summary | — |
 
 ---
 
@@ -125,14 +128,26 @@ curl -s "$BASE/products?search=shirt&category_id=1&per_page=10" -H "Accept: appl
 curl -s $BASE/products/1 -H "Accept: application/json"
 ```
 
+### Categories (public)
+
+**7. Category tree** — top-level categories with children nested one level; not paginated.
+```bash
+curl -s $BASE/categories -H "Accept: application/json"
+```
+
+**8. Show category** — resolved by **slug** (not id); returns the category with its immediate children. Products live behind `GET /products?category_id={id}`.
+```bash
+curl -s $BASE/categories/electronics -H "Accept: application/json"
+```
+
 ### Cart (customer)
 
-**7. Show cart**
+**9. Show cart**
 ```bash
 curl -s $BASE/cart -H "Accept: application/json" -H "Authorization: Bearer $TOKEN"
 ```
 
-**8. Upsert cart line** — quantity is absolute, `1..99`; `product_id` must exist.
+**10. Upsert cart line** — quantity is absolute, `1..99`; `product_id` must exist.
 ```bash
 curl -s -X PUT $BASE/cart \
   -H "Accept: application/json" -H "Content-Type: application/json" \
@@ -140,19 +155,19 @@ curl -s -X PUT $BASE/cart \
   -d '{"product_id":1,"quantity":2}'
 ```
 
-**9. Remove cart line**
+**11. Remove cart line**
 ```bash
 curl -s -X DELETE $BASE/cart/1 -H "Accept: application/json" -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Orders (customer)
 
-**10. List orders**
+**12. List orders**
 ```bash
 curl -s "$BASE/orders?per_page=20" -H "Accept: application/json" -H "Authorization: Bearer $TOKEN"
 ```
 
-**11. Place order** — `payment_method` one of `card` | `qr` | `cod`. Builds from the current cart.
+**13. Place order** — `payment_method` one of `card` | `qr` | `cod`. Builds from the current cart.
 ```bash
 curl -s -X POST $BASE/orders \
   -H "Accept: application/json" -H "Content-Type: application/json" \
@@ -160,7 +175,7 @@ curl -s -X POST $BASE/orders \
   -d '{"payment_method":"cod"}'
 ```
 
-**12. Show order**
+**14. Show order**
 ```bash
 curl -s $BASE/orders/1 -H "Accept: application/json" -H "Authorization: Bearer $TOKEN"
 ```
@@ -169,12 +184,12 @@ curl -s $BASE/orders/1 -H "Accept: application/json" -H "Authorization: Bearer $
 
 > Needs a `vendor:manage` token **and** an active vendor (`EnsureVendorRole` rejects non-active vendors).
 
-**13. List my products**
+**15. List my products**
 ```bash
 curl -s $BASE/vendor/products -H "Accept: application/json" -H "Authorization: Bearer $TOKEN"
 ```
 
-**14. Create product** — `price` numeric, max 2 decimals; `category_id` must exist; `is_active`/`low_stock_threshold` optional.
+**16. Create product** — `price` numeric, max 2 decimals; `category_id` must exist; `is_active`/`low_stock_threshold` optional.
 ```bash
 curl -s -X POST $BASE/vendor/products \
   -H "Accept: application/json" -H "Content-Type: application/json" \
@@ -182,7 +197,7 @@ curl -s -X POST $BASE/vendor/products \
   -d '{"name":"Blue Tee","category_id":1,"description":"Cotton tee","price":19.99,"stock":100,"low_stock_threshold":5,"is_active":true}'
 ```
 
-**15. Update product** (PATCH = partial)
+**17. Update product** (PATCH = partial)
 ```bash
 curl -s -X PATCH $BASE/vendor/products/1 \
   -H "Accept: application/json" -H "Content-Type: application/json" \
@@ -190,17 +205,17 @@ curl -s -X PATCH $BASE/vendor/products/1 \
   -d '{"price":17.50,"stock":80}'
 ```
 
-**16. Delete product**
+**18. Delete product**
 ```bash
 curl -s -X DELETE $BASE/vendor/products/1 -H "Accept: application/json" -H "Authorization: Bearer $TOKEN"
 ```
 
-**17. List vendor orders**
+**19. List vendor orders**
 ```bash
 curl -s $BASE/vendor/orders -H "Accept: application/json" -H "Authorization: Bearer $TOKEN"
 ```
 
-**18. Fulfill vendor lines** — `status` only `shipped` or `delivered` (transitions enforced server-side; 404 if you have no line on this order).
+**20. Fulfill vendor lines** — `status` only `shipped` or `delivered` (transitions enforced server-side; 404 if you have no line on this order).
 ```bash
 curl -s -X PATCH $BASE/vendor/orders/1 \
   -H "Accept: application/json" -H "Content-Type: application/json" \
@@ -212,12 +227,12 @@ curl -s -X PATCH $BASE/vendor/orders/1 \
 
 > Needs an `admin:manage` token.
 
-**19. List vendors** — `?status=pending|active|suspended` filters the queue; `per_page` default 20.
+**21. List vendors** — `?status=pending|active|suspended` filters the queue; `per_page` default 20.
 ```bash
 curl -s "$BASE/admin/vendors?status=pending" -H "Accept: application/json" -H "Authorization: Bearer $TOKEN"
 ```
 
-**20. Update vendor status** — `status` one of `pending` | `active` | `suspended`.
+**22. Update vendor status** — `status` one of `pending` | `active` | `suspended`.
 ```bash
 curl -s -X PATCH $BASE/admin/vendors/1 \
   -H "Accept: application/json" -H "Content-Type: application/json" \
@@ -225,7 +240,7 @@ curl -s -X PATCH $BASE/admin/vendors/1 \
   -d '{"status":"active"}'
 ```
 
-**21. Sales report**
+**23. Sales report**
 ```bash
 curl -s $BASE/admin/reports/sales -H "Accept: application/json" -H "Authorization: Bearer $TOKEN"
 # -> { orders_count, gross_revenue, top_vendors[], active_vendors }
@@ -254,5 +269,6 @@ curl -s $BASE/admin/reports/sales -H "Accept: application/json" -H "Authorizatio
 ## Notes & gotchas
 
 - **`/register` only mints customers.** Vendor/admin accounts must be seeded, or set `role` + an active `Vendor` row directly in the DB.
+- **Category `show` is by slug, not id** — `GET /categories/electronics`, not `/categories/1`. Listing is the full tree (unpaginated); products are fetched separately via `GET /products?category_id={id}`.
 - **403 vs 404 on vendor orders:** `PATCH /vendor/orders/{id}` returns `404` (not `403`) when the vendor has no line on that order — so other customers' orders aren't leaked.
 - **Validation errors** return `422` with a `{ "message", "errors": {...} }` body — send `Accept: application/json` to see them.
