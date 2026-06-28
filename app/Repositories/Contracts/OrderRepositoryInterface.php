@@ -15,8 +15,8 @@ interface OrderRepositoryInterface
     /**
      * Persist an order together with its line items in one call.
      *
-     * @param array<string, mixed> $attributes
-     * @param array<int, array<string, mixed>> $items
+     * @param  array<string, mixed>  $attributes
+     * @param  array<int, array<string, mixed>>  $items
      */
     public function create(array $attributes, array $items): Order;
 }

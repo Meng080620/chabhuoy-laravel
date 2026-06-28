@@ -19,6 +19,13 @@ class OrderResource extends JsonResource
             'payment_method' => $this->payment_method->value,
             'total' => $this->total,
             'placed_at' => $this->placed_at,
+            // The customer behind the order — only when eager-loaded (admin
+            // listing). Customers/vendors never load this relation.
+            'customer' => $this->whenLoaded('user', fn () => [
+                'id' => $this->user->id,
+                'name' => $this->user->name,
+                'email' => $this->user->email,
+            ]),
             // Immutable shipping snapshot captured at checkout (null on legacy rows).
             'shipping' => $this->ship_recipient_name === null ? null : [
                 'recipient_name' => $this->ship_recipient_name,

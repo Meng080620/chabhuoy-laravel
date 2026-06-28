@@ -67,4 +67,9 @@ class EloquentProductRepository implements ProductRepositoryInterface
     {
         $product->decrement('stock', $quantity);
     }
+
+    public function incrementStock(Product $product, int $quantity): void
+    {
+        $product->increment('stock', $quantity);
+    }
 }

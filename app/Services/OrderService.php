@@ -7,6 +7,7 @@ use App\Enums\OrderStatus;
 use App\Enums\PaymentMethod;
 use App\Events\OrderPlaced;
 use App\Exceptions\InvalidFulfillmentTransitionException;
+use App\Exceptions\InvalidOrderTransitionException;
 use App\Exceptions\OutOfStockException;
 use App\Exceptions\PaymentFailedException;
 use App\Exceptions\VendorUnavailableException;
@@ -114,6 +115,57 @@ class OrderService
             }
 
             $this->syncOrderStatusFromLines($order);
+
+            return $order->fresh('items');
+        });
+    }
+
+    /**
+     * Admin-driven cancellation (fraud, dispute, customer request).
+     *
+     * The OrderStatus machine only allows Cancelled from Pending or Paid, so a
+     * shipped/delivered order is rejected with a 422 before anything mutates.
+     * Stock that is still *held* — paid-for lines not yet shipped — is returned
+     * to inventory under a row lock so it can't race a concurrent checkout.
+     * Delivered lines (possible on a partially-shipped, still-Paid order) have
+     * already left inventory, so they're left untouched.
+     *
+     * Refunds are a separate concern: PaymentService is a charge-only stub
+     * today, so issuing the money back is a deliberate follow-up, not silently
+     * skipped here.
+     *
+     * @throws InvalidOrderTransitionException
+     */
+    public function cancelAsAdmin(Order $order): Order
+    {
+        return DB::transaction(function () use ($order): Order {
+            $from = $order->status;
+
+            if (! $from->canTransitionTo(OrderStatus::Cancelled)) {
+                throw new InvalidOrderTransitionException($from, OrderStatus::Cancelled);
+            }
+
+            $lines = $order->items()->lockForUpdate()->get();
+
+            foreach ($lines as $line) {
+                // Delivered goods can't be recalled through a cancellation.
+                if ($line->status === FulfillmentStatus::Delivered) {
+                    continue;
+                }
+
+                // Only Pending lines on a Paid order still hold reserved stock.
+                if ($from === OrderStatus::Paid && $line->status === FulfillmentStatus::Pending) {
+                    $product = $this->products->findForUpdate($line->product_id);
+
+                    if ($product !== null) {
+                        $this->products->incrementStock($product, $line->quantity);
+                    }
+                }
+
+                $line->update(['status' => FulfillmentStatus::Cancelled]);
+            }
+
+            $order->update(['status' => OrderStatus::Cancelled]);
 
             return $order->fresh('items');
         });

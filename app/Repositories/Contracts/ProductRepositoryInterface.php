@@ -29,4 +29,6 @@ interface ProductRepositoryInterface
     public function update(Product $product, array $attributes): Product;
 
     public function decrementStock(Product $product, int $quantity): void;
+
+    public function incrementStock(Product $product, int $quantity): void;
 }
