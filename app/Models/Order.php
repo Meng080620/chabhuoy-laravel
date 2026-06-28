@@ -17,6 +17,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'payment_method',
     'total',
     'placed_at',
+    'ship_recipient_name',
+    'ship_phone',
+    'ship_line1',
+    'ship_line2',
+    'ship_city',
+    'ship_postal_code',
+    'ship_country',
 ])]
 class Order extends Model
 {

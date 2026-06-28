@@ -5,6 +5,7 @@ namespace Tests\Feature\Services;
 use App\Enums\PaymentMethod;
 use App\Enums\PaymentStatus;
 use App\Exceptions\PaymentFailedException;
+use App\Models\Address;
 use App\Models\Cart;
 use App\Models\Order;
 use App\Models\Payment;
@@ -94,7 +95,7 @@ class PaymentServiceTest extends TestCase
         $cart->items()->create(['product_id' => $product->id, 'quantity' => 2]);
 
         $order = $this->app->make(OrderService::class)
-            ->placeFromCart($user, PaymentMethod::Card);
+            ->placeFromCart($user, PaymentMethod::Card, Address::factory()->create(['user_id' => $user->id]));
 
         $this->assertDatabaseHas('payments', [
             'order_id' => $order->id,

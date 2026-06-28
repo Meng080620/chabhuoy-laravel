@@ -19,6 +19,16 @@ class OrderResource extends JsonResource
             'payment_method' => $this->payment_method->value,
             'total' => $this->total,
             'placed_at' => $this->placed_at,
+            // Immutable shipping snapshot captured at checkout (null on legacy rows).
+            'shipping' => $this->ship_recipient_name === null ? null : [
+                'recipient_name' => $this->ship_recipient_name,
+                'phone' => $this->ship_phone,
+                'line1' => $this->ship_line1,
+                'line2' => $this->ship_line2,
+                'city' => $this->ship_city,
+                'postal_code' => $this->ship_postal_code,
+                'country' => $this->ship_country,
+            ],
             'items' => $this->whenLoaded('items', fn () => $this->items->map(fn ($item) => [
                 'product_name' => $item->product_name,
                 'quantity' => $item->quantity,

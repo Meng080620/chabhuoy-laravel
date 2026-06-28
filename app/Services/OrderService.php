@@ -11,6 +11,7 @@ use App\Exceptions\OutOfStockException;
 use App\Exceptions\PaymentFailedException;
 use App\Exceptions\VendorUnavailableException;
 use App\Jobs\SendOrderConfirmation;
+use App\Models\Address;
 use App\Models\Cart;
 use App\Models\Order;
 use App\Models\OrderItem;
@@ -40,9 +41,9 @@ class OrderService
      * @throws OutOfStockException
      * @throws PaymentFailedException
      */
-    public function placeFromCart(User $user, PaymentMethod $method): Order
+    public function placeFromCart(User $user, PaymentMethod $method, Address $address): Order
     {
-        $order = DB::transaction(function () use ($user, $method): Order {
+        $order = DB::transaction(function () use ($user, $method, $address): Order {
             $cart = $user->cart()->with('items.product')->first();
 
             if ($cart === null || $cart->items->isEmpty()) {
@@ -57,6 +58,9 @@ class OrderService
                 'payment_method' => $method,
                 'total' => $total,
                 'placed_at' => now(),
+                // Freeze the destination at purchase time; a later edit to the
+                // saved address must never rewrite where a placed order shipped.
+                ...$address->toOrderSnapshot(),
             ], $lineItems);
 
             // Throws PaymentFailedException -> transaction rolls back, no stock moved.

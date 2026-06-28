@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Admin\ReportController;
 use App\Http\Controllers\Api\Admin\VendorController as AdminVendorController;
+use App\Http\Controllers\Api\Customer\AddressController;
 use App\Http\Controllers\Api\Customer\AuthController;
 use App\Http\Controllers\Api\Customer\CartController;
 use App\Http\Controllers\Api\Customer\CategoryController;
@@ -38,6 +39,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('cart', [CartController::class, 'show']);
     Route::put('cart', [CartController::class, 'update']);
     Route::delete('cart/{productId}', [CartController::class, 'destroy']);
+
+    // Shipping addresses (customer)
+    Route::get('addresses', [AddressController::class, 'index']);
+    Route::post('addresses', [AddressController::class, 'store']);
+    Route::put('addresses/{address}', [AddressController::class, 'update']);
+    Route::delete('addresses/{address}', [AddressController::class, 'destroy']);
+    Route::patch('addresses/{address}/default', [AddressController::class, 'setDefault']);
 
     // Orders (customer)
     Route::get('orders', [OrderController::class, 'index']);

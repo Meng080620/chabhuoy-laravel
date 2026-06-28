@@ -35,9 +35,14 @@ class OrderController extends Controller
 
     public function store(StoreOrderRequest $request): OrderResource
     {
+        // Scoped to the user, so a valid-but-someone-else's address_id can't
+        // resolve here even though the request rule already enforces ownership.
+        $address = $request->user()->addresses()->findOrFail($request->validated('address_id'));
+
         $order = $this->orders->placeFromCart(
             $request->user(),
             $request->paymentMethod(),
+            $address,
         );
 
         return OrderResource::make($order)

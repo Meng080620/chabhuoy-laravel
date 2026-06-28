@@ -45,9 +45,24 @@ class AuthCheckoutTest extends TestCase
             'quantity' => 2,
         ], $auth)->assertOk();
 
-        // 4. Check out.
+        // 4. Add a shipping address (first one becomes the default).
+        $this->postJson('/api/addresses', [
+            'recipient_name' => 'Jane Buyer',
+            'phone' => '012345678',
+            'line1' => '42 Norodom Blvd',
+            'city' => 'Phnom Penh',
+            'postal_code' => '12000',
+            'country' => 'KH',
+        ], $auth)->assertCreated()
+            ->assertJsonPath('data.is_default', true);
+
+        $address = User::where('email', 'jane@example.com')->firstOrFail()
+            ->addresses()->firstOrFail();
+
+        // 5. Check out against that address.
         $checkout = $this->postJson('/api/orders', [
             'payment_method' => 'card',
+            'address_id' => $address->id,
         ], $auth);
 
         // 201: a resource backed by a just-created model reports Created.

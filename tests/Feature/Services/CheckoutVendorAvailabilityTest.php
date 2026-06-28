@@ -4,6 +4,7 @@ namespace Tests\Feature\Services;
 
 use App\Enums\PaymentMethod;
 use App\Exceptions\VendorUnavailableException;
+use App\Models\Address;
 use App\Models\Cart;
 use App\Models\Order;
 use App\Models\Product;
@@ -33,7 +34,7 @@ class CheckoutVendorAvailabilityTest extends TestCase
         $this->seedCart($user, $product, quantity: 1);
 
         try {
-            $this->service->placeFromCart($user, PaymentMethod::Card);
+            $this->service->placeFromCart($user, PaymentMethod::Card, Address::factory()->create(['user_id' => $user->id]));
             $this->fail('Expected VendorUnavailableException was not thrown.');
         } catch (VendorUnavailableException $e) {
             $this->assertSame($product->id, $e->product?->id);
@@ -54,7 +55,7 @@ class CheckoutVendorAvailabilityTest extends TestCase
 
         $this->expectException(VendorUnavailableException::class);
 
-        $this->service->placeFromCart($user, PaymentMethod::Card);
+        $this->service->placeFromCart($user, PaymentMethod::Card, Address::factory()->create(['user_id' => $user->id]));
     }
 
     private function seedCart(User $user, Product $product, int $quantity): void
