@@ -35,6 +35,21 @@ class OrderController extends Controller
                     fn ($i) => $i->where('vendor_id', $request->integer('vendor_id')),
                 ),
             )
+            ->when(
+                $request->filled('search'),
+                function ($q) use ($request): void {
+                    $term = trim((string) $request->string('search'));
+
+                    // Order # (uuid) or the customer behind it (name/email).
+                    // Grouped so the OR can't leak past the status/vendor filters.
+                    $q->where(function ($q) use ($term): void {
+                        $q->where('uuid', $term)
+                            ->orWhereHas('user', fn ($u) => $u
+                                ->where('name', 'like', "%{$term}%")
+                                ->orWhere('email', 'like', "%{$term}%"));
+                    });
+                },
+            )
             ->with(['items', 'user'])
             ->latest('placed_at')
             ->paginate((int) $request->integer('per_page', 20));

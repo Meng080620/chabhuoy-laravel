@@ -58,6 +58,34 @@ class AdminOrderManagementTest extends TestCase
             ->assertJsonCount(2, 'data');
     }
 
+    public function test_admin_can_search_orders_by_customer_name_email_and_order_uuid(): void
+    {
+        $alice = User::factory()->create(['name' => 'Alice Zaytsev', 'email' => 'alice@example.com']);
+        $bob = User::factory()->create(['name' => 'Bob Marley', 'email' => 'bob@example.com']);
+        $aliceOrder = Order::factory()->for($alice)->create();
+        Order::factory()->for($bob)->create();
+
+        $this->actAsAdmin();
+
+        // By customer name (partial, case-insensitive).
+        $this->getJson('/api/admin/orders?search=zaytsev')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.customer.email', 'alice@example.com');
+
+        // By customer email.
+        $this->getJson('/api/admin/orders?search=bob@example.com')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.customer.name', 'Bob Marley');
+
+        // By order uuid.
+        $this->getJson("/api/admin/orders?search={$aliceOrder->uuid}")
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $aliceOrder->uuid);
+    }
+
     public function test_admin_can_cancel_a_paid_order_and_held_stock_is_restored(): void
     {
         $vendor = Vendor::factory()->create();
