@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Admin\CategoryController as AdminCategoryController;
 use App\Http\Controllers\Api\Admin\CustomerController as AdminCustomerController;
 use App\Http\Controllers\Api\Admin\OrderController as AdminOrderController;
+use App\Http\Controllers\Api\Admin\PayoutController as AdminPayoutController;
 use App\Http\Controllers\Api\Admin\ProductController as AdminProductController;
 use App\Http\Controllers\Api\Admin\ReportController;
 use App\Http\Controllers\Api\Admin\VendorController as AdminVendorController;
@@ -12,6 +13,7 @@ use App\Http\Controllers\Api\Customer\CartController;
 use App\Http\Controllers\Api\Customer\CategoryController;
 use App\Http\Controllers\Api\Customer\OrderController;
 use App\Http\Controllers\Api\Customer\ProductController;
+use App\Http\Controllers\Api\Vendor\EarningsController as VendorEarningsController;
 use App\Http\Controllers\Api\Vendor\OrderController as VendorOrderController;
 use App\Http\Controllers\Api\Vendor\ProductController as VendorProductController;
 use Illuminate\Support\Facades\Route;
@@ -66,6 +68,7 @@ Route::middleware('auth:sanctum')->group(function () {
             ->only(['index', 'store', 'update', 'destroy']);
         Route::get('orders', [VendorOrderController::class, 'index']);
         Route::patch('orders/{order}', [VendorOrderController::class, 'update']);
+        Route::get('earnings', [VendorEarningsController::class, 'show']);
     });
 
     /*
@@ -89,5 +92,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('categories/{category:id}', [AdminCategoryController::class, 'destroy']);
         Route::get('customers', [AdminCustomerController::class, 'index']);
         Route::get('customers/{user}', [AdminCustomerController::class, 'show']);
+        // Vendor disbursement ledger; {vendor} binds by uuid (HasUuid route key).
+        Route::get('payouts', [AdminPayoutController::class, 'index']);
+        Route::post('payouts/{vendor}', [AdminPayoutController::class, 'store']);
     });
 });

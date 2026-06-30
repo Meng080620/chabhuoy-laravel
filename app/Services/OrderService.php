@@ -20,6 +20,7 @@ use App\Models\User;
 use App\Models\Vendor;
 use App\Repositories\Contracts\OrderRepositoryInterface;
 use App\Repositories\Contracts\ProductRepositoryInterface;
+use App\Repositories\Contracts\VendorRepositoryInterface;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -29,6 +30,7 @@ class OrderService
         private readonly OrderRepositoryInterface $orders,
         private readonly ProductRepositoryInterface $products,
         private readonly PaymentService $payment,
+        private readonly VendorRepositoryInterface $vendors,
     ) {}
 
     /**
@@ -102,6 +104,11 @@ class OrderService
                 ->lockForUpdate()
                 ->get();
 
+            // Earnings credited only for lines that actually transition INTO
+            // Delivered on this call — already-delivered lines are skipped, so a
+            // repeated "deliver" can never double-pay the vendor.
+            $earned = '0';
+
             foreach ($lines as $line) {
                 if ($line->status === $target) {
                     continue;
@@ -111,7 +118,19 @@ class OrderService
                     throw new InvalidFulfillmentTransitionException($line->status, $target);
                 }
 
+                if ($target === FulfillmentStatus::Delivered) {
+                    $earned = bcadd($earned, (string) $line->line_total, 2);
+                }
+
                 $line->update(['status' => $target]);
+            }
+
+            // Delivery is when the money is realised — credit the vendor inside
+            // the same transaction as the status change so the two can't drift.
+            // v1 pays the full line_total; platform commission is a deliberate
+            // follow-up (no commission model exists in the schema yet).
+            if (bccomp($earned, '0', 2) > 0) {
+                $this->vendors->creditPayout($vendor, $earned);
             }
 
             $this->syncOrderStatusFromLines($order);

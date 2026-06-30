@@ -15,7 +15,9 @@ class Vendor extends Model
     use HasFactory, HasUuid;
 
     public const STATUS_PENDING = 'pending';
+
     public const STATUS_ACTIVE = 'active';
+
     public const STATUS_SUSPENDED = 'suspended';
 
     /** @return array<string, string> */
@@ -42,6 +44,12 @@ class Vendor extends Model
     public function orderItems(): HasMany
     {
         return $this->hasMany(OrderItem::class);
+    }
+
+    /** @return HasMany<Payout, $this> */
+    public function payouts(): HasMany
+    {
+        return $this->hasMany(Payout::class);
     }
 
     public function isActive(): bool
