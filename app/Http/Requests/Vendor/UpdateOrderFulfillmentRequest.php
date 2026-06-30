@@ -28,11 +28,26 @@ class UpdateOrderFulfillmentRequest extends FormRequest
                     FulfillmentStatus::Delivered->value,
                 ]),
             ],
+            // Tracking belongs to the shipping step only — prohibited on a
+            // delivered update so a number can't be back-filled at the wrong
+            // stage. Both optional: a vendor may ship before a number exists.
+            'carrier' => ['nullable', 'string', 'max:100', 'prohibited_unless:status,'.FulfillmentStatus::Shipped->value],
+            'tracking_number' => ['nullable', 'string', 'max:100', 'prohibited_unless:status,'.FulfillmentStatus::Shipped->value],
         ];
     }
 
     public function fulfillmentStatus(): FulfillmentStatus
     {
         return FulfillmentStatus::from($this->validated('status'));
+    }
+
+    public function carrier(): ?string
+    {
+        return $this->validated('carrier');
+    }
+
+    public function trackingNumber(): ?string
+    {
+        return $this->validated('tracking_number');
     }
 }

@@ -94,11 +94,20 @@ class OrderService
      * Lines are locked for the duration so two concurrent updates can't race
      * the rollup. Idempotent: a line already at the target is skipped.
      *
+     * When shipping, optional tracking is recorded as a per-vendor Shipment.
+     * Passing tracking on a repeat "ship" corrects it without re-shipping the
+     * lines — useful for fixing a mistyped number after the fact.
+     *
      * @throws InvalidFulfillmentTransitionException
      */
-    public function fulfilVendorLines(Order $order, Vendor $vendor, FulfillmentStatus $target): Order
-    {
-        return DB::transaction(function () use ($order, $vendor, $target): Order {
+    public function fulfilVendorLines(
+        Order $order,
+        Vendor $vendor,
+        FulfillmentStatus $target,
+        ?string $carrier = null,
+        ?string $trackingNumber = null,
+    ): Order {
+        return DB::transaction(function () use ($order, $vendor, $target, $carrier, $trackingNumber): Order {
             $lines = $order->items()
                 ->where('vendor_id', $vendor->id)
                 ->lockForUpdate()
@@ -133,10 +142,35 @@ class OrderService
                 $this->vendors->creditPayout($vendor, $earned);
             }
 
+            if ($target === FulfillmentStatus::Shipped && $trackingNumber !== null) {
+                $this->recordShipment($order, $vendor, $carrier, $trackingNumber);
+            }
+
             $this->syncOrderStatusFromLines($order);
 
             return $order->fresh('items');
         });
+    }
+
+    /**
+     * Upsert the vendor's parcel for this order. Keyed on (order, vendor) so a
+     * second call corrects the tracking instead of creating a duplicate; the
+     * `shipped_at` stamp is written once, on first ship, and preserved after.
+     */
+    private function recordShipment(Order $order, Vendor $vendor, ?string $carrier, string $trackingNumber): void
+    {
+        $shipment = $order->shipments()->firstOrNew(['vendor_id' => $vendor->id]);
+
+        $shipment->fill([
+            'carrier' => $carrier,
+            'tracking_number' => $trackingNumber,
+        ]);
+
+        if (! $shipment->exists) {
+            $shipment->shipped_at = now();
+        }
+
+        $shipment->save();
     }
 
     /**

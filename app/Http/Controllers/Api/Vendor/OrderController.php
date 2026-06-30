@@ -48,13 +48,20 @@ class OrderController extends Controller
             404,
         );
 
-        $order = $this->orders->fulfilVendorLines($order, $vendor, $request->fulfillmentStatus());
+        $order = $this->orders->fulfilVendorLines(
+            $order,
+            $vendor,
+            $request->fulfillmentStatus(),
+            $request->carrier(),
+            $request->trackingNumber(),
+        );
 
-        // Return only this vendor's lines, consistent with index().
+        // Return only this vendor's lines and their own parcel, consistent with index().
         $order->setRelation(
             'items',
             $order->items->where('vendor_id', $vendor->id)->values(),
         );
+        $order->load(['shipments' => fn ($q) => $q->where('vendor_id', $vendor->id)]);
 
         return OrderResource::make($order);
     }

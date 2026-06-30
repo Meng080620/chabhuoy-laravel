@@ -68,4 +68,15 @@ class Order extends Model
     {
         return $this->hasMany(Payment::class);
     }
+
+    /**
+     * Per-vendor parcels for this order — one shipment per vendor (see
+     * {@see Shipment}). A customer following a multi-vendor order tracks each.
+     *
+     * @return HasMany<Shipment, $this>
+     */
+    public function shipments(): HasMany
+    {
+        return $this->hasMany(Shipment::class);
+    }
 }

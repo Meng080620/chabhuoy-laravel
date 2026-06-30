@@ -16,8 +16,7 @@ class OrderController extends Controller
     public function __construct(
         private readonly OrderService $orders,
         private readonly OrderRepositoryInterface $orderRepository,
-    ) {
-    }
+    ) {}
 
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -30,7 +29,7 @@ class OrderController extends Controller
     {
         $this->authorize('view', $order);
 
-        return OrderResource::make($order->load('items'));
+        return OrderResource::make($order->load(['items', 'shipments.vendor']));
     }
 
     public function store(StoreOrderRequest $request): OrderResource

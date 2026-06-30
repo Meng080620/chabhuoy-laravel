@@ -43,6 +43,17 @@ class OrderResource extends JsonResource
                 'line_total' => $item->line_total,
                 'status' => $item->status->value,
             ])),
+            // Per-vendor parcels with tracking — only when eager-loaded. The
+            // vendor relation is itself only present on the customer-facing load.
+            'shipments' => $this->whenLoaded('shipments', fn () => $this->shipments->map(fn ($shipment) => [
+                'carrier' => $shipment->carrier,
+                'tracking_number' => $shipment->tracking_number,
+                'shipped_at' => $shipment->shipped_at,
+                'vendor' => $shipment->relationLoaded('vendor') ? [
+                    'id' => $shipment->vendor->uuid,
+                    'name' => $shipment->vendor->name,
+                ] : null,
+            ])),
         ];
     }
 }
