@@ -1,6 +1,9 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\CategoryController as AdminCategoryController;
+use App\Http\Controllers\Api\Admin\CustomerController as AdminCustomerController;
 use App\Http\Controllers\Api\Admin\OrderController as AdminOrderController;
+use App\Http\Controllers\Api\Admin\ProductController as AdminProductController;
 use App\Http\Controllers\Api\Admin\ReportController;
 use App\Http\Controllers\Api\Admin\VendorController as AdminVendorController;
 use App\Http\Controllers\Api\Customer\AddressController;
@@ -76,5 +79,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('vendors/{vendor}', [AdminVendorController::class, 'updateStatus']);
         Route::get('orders', [AdminOrderController::class, 'index']);
         Route::patch('orders/{order}', [AdminOrderController::class, 'update']);
+        Route::get('products', [AdminProductController::class, 'index']);
+        Route::patch('products/{product}', [AdminProductController::class, 'update']);
+        // Category model resolves by slug for storefront URLs; admin mutations
+        // bind by the stable numeric id (a rename changes the slug).
+        Route::get('categories', [AdminCategoryController::class, 'index']);
+        Route::post('categories', [AdminCategoryController::class, 'store']);
+        Route::put('categories/{category:id}', [AdminCategoryController::class, 'update']);
+        Route::delete('categories/{category:id}', [AdminCategoryController::class, 'destroy']);
+        Route::get('customers', [AdminCustomerController::class, 'index']);
+        Route::get('customers/{user}', [AdminCustomerController::class, 'show']);
     });
 });
