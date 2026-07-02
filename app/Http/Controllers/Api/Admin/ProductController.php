@@ -4,13 +4,19 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\UpdateProductStatusRequest;
+use App\Http\Requests\Admin\UploadProductImageRequest;
 use App\Http\Resources\ProductResource;
 use App\Models\Product;
+use App\Services\ProductService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class ProductController extends Controller
 {
+    public function __construct(
+        private readonly ProductService $products,
+    ) {}
+
     /**
      * Every vendor's catalogue in one moderation list, newest first. Unlike the
      * public storefront, this ignores the active-vendor/visibility rules — an
@@ -59,6 +65,28 @@ class ProductController extends Controller
     public function update(UpdateProductStatusRequest $request, Product $product): ProductResource
     {
         $product->update(['is_active' => $request->validated('is_active')]);
+
+        return ProductResource::make($product->load(['vendor', 'category']));
+    }
+
+    /**
+     * Upload (or replace) the product's image. Resolved by uuid; multipart body
+     * carries the `image` file. The service handles storage + old-file cleanup.
+     */
+    public function uploadImage(UploadProductImageRequest $request, Product $product): ProductResource
+    {
+        $product = $this->products->setImage($product, $request->file('image'));
+
+        return ProductResource::make($product->load(['vendor', 'category']));
+    }
+
+    /**
+     * Remove the product's image (file + column). Idempotent — a product with no
+     * image returns cleanly with a null image_url.
+     */
+    public function removeImage(Product $product): ProductResource
+    {
+        $product = $this->products->removeImage($product);
 
         return ProductResource::make($product->load(['vendor', 'category']));
     }

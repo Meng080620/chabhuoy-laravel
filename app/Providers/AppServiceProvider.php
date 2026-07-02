@@ -15,7 +15,17 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Money-movement seams — the only calls that leave the process. Both are
+        // bound to credential-free log adapters so every flow runs in tests and
+        // local dev; swap the binding for a real SDK adapter to go live.
+        $this->app->bind(
+            \App\Services\Contracts\PaymentGateway::class,
+            \App\Services\Gateways\LogPaymentGateway::class,
+        );
+        $this->app->bind(
+            \App\Services\Contracts\DisbursementProvider::class,
+            \App\Services\Disbursement\LogDisbursementProvider::class,
+        );
     }
 
     /**

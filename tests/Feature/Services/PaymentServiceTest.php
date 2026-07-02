@@ -11,6 +11,7 @@ use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\User;
+use App\Services\Contracts\PaymentGateway;
 use App\Services\OrderService;
 use App\Services\PaymentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -103,5 +104,74 @@ class PaymentServiceTest extends TestCase
             'status' => PaymentStatus::Succeeded->value,
             'amount' => '30.00',
         ]);
+    }
+
+    public function test_refunding_a_captured_order_records_a_refund_ledger_row(): void
+    {
+        $order = Order::factory()->create(['total' => '50.00']);
+        $this->service->charge($order, PaymentMethod::Card);
+
+        $refund = $this->service->refund($order);
+
+        $this->assertNotNull($refund);
+        $this->assertSame(PaymentStatus::Refunded, $refund->status);
+        $this->assertSame('50.00', (string) $refund->amount);
+        $this->assertStringStartsWith('rfnd_', (string) $refund->reference);
+        // The original capture is left intact — the refund is its own ledger row.
+        $this->assertSame(1, Payment::where('order_id', $order->id)->where('status', PaymentStatus::Succeeded)->count());
+        $this->assertSame(1, Payment::where('order_id', $order->id)->where('status', PaymentStatus::Refunded)->count());
+    }
+
+    public function test_refunds_are_idempotent(): void
+    {
+        $order = Order::factory()->create(['total' => '50.00']);
+        $this->service->charge($order, PaymentMethod::Card);
+
+        $first = $this->service->refund($order);
+        $second = $this->service->refund($order);
+
+        // The retry replays the original refund instead of reversing twice.
+        $this->assertSame($first?->reference, $second?->reference);
+        $this->assertSame(1, Payment::where('order_id', $order->id)->where('status', PaymentStatus::Refunded)->count());
+    }
+
+    public function test_refunding_an_uncaptured_order_is_a_noop(): void
+    {
+        // COD / never captured — there is nothing to reverse.
+        $order = Order::factory()->create(['total' => '30.00']);
+
+        $this->assertNull($this->service->refund($order));
+        $this->assertSame(0, Payment::where('status', PaymentStatus::Refunded)->count());
+    }
+
+    public function test_a_gateway_decline_records_a_failed_payment_and_throws(): void
+    {
+        // Swap in a gateway that always declines to prove the failure path.
+        $this->app->instance(PaymentGateway::class, new class implements PaymentGateway
+        {
+            public function charge(string $amount, string $idempotencyKey): string
+            {
+                throw new PaymentFailedException('Card declined.');
+            }
+
+            public function refund(string $amount, string $idempotencyKey, string $originalReference): string
+            {
+                return 'rfnd_unused';
+            }
+        });
+        $service = $this->app->make(PaymentService::class);
+        $order = Order::factory()->create(['total' => '25.00']);
+
+        try {
+            $service->charge($order, PaymentMethod::Card);
+            $this->fail('Expected PaymentFailedException.');
+        } catch (PaymentFailedException) {
+            // expected
+        }
+
+        // A Failed row is recorded (so a retry isn't silently re-attempted) and
+        // nothing was captured.
+        $this->assertSame(1, Payment::where('order_id', $order->id)->where('status', PaymentStatus::Failed)->count());
+        $this->assertSame(0, Payment::where('status', PaymentStatus::Succeeded)->count());
     }
 }

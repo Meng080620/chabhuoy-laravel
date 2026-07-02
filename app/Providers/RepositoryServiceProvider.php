@@ -2,9 +2,11 @@
 
 namespace App\Providers;
 
+use App\Repositories\Contracts\DeliveryManRepositoryInterface;
 use App\Repositories\Contracts\OrderRepositoryInterface;
 use App\Repositories\Contracts\ProductRepositoryInterface;
 use App\Repositories\Contracts\VendorRepositoryInterface;
+use App\Repositories\Eloquent\EloquentDeliveryManRepository;
 use App\Repositories\Eloquent\EloquentOrderRepository;
 use App\Repositories\Eloquent\EloquentProductRepository;
 use App\Repositories\Eloquent\EloquentVendorRepository;
@@ -23,6 +25,7 @@ class RepositoryServiceProvider extends ServiceProvider
         ProductRepositoryInterface::class => EloquentProductRepository::class,
         OrderRepositoryInterface::class => EloquentOrderRepository::class,
         VendorRepositoryInterface::class => EloquentVendorRepository::class,
+        DeliveryManRepositoryInterface::class => EloquentDeliveryManRepository::class,
     ];
 
     public function register(): void

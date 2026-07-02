@@ -7,10 +7,16 @@ enum UserRole: string
     case Customer = 'customer';
     case Vendor = 'vendor';
     case Admin = 'admin';
+    case DeliveryMan = 'delivery_man';
 
     public function label(): string
     {
-        return ucfirst($this->value);
+        return match ($this) {
+            self::Customer => 'Customer',
+            self::Vendor => 'Vendor',
+            self::Admin => 'Admin',
+            self::DeliveryMan => 'Delivery Man',
+        };
     }
 
     /**
@@ -27,6 +33,7 @@ enum UserRole: string
             self::Admin => ['*'],
             self::Vendor => ['cart:manage', 'orders:manage', 'vendor:manage'],
             self::Customer => ['cart:manage', 'orders:manage'],
+            self::DeliveryMan => ['delivery:manage'],
         };
     }
 }

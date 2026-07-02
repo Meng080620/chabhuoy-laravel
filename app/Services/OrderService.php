@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Enums\FulfillmentStatus;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentMethod;
+use App\Events\OrderCancelledByAdmin;
+use App\Events\OrderLineShipped;
 use App\Events\OrderPlaced;
 use App\Exceptions\InvalidFulfillmentTransitionException;
 use App\Exceptions\InvalidOrderTransitionException;
@@ -146,6 +148,12 @@ class OrderService
                 $this->recordShipment($order, $vendor, $carrier, $trackingNumber);
             }
 
+            if ($target === FulfillmentStatus::Shipped) {
+                // Dispatched on every Shipped call, including a tracking-only
+                // correction — the listener's firstOrCreate absorbs repeats safely.
+                OrderLineShipped::dispatch($order, $vendor);
+            }
+
             $this->syncOrderStatusFromLines($order);
 
             return $order->fresh('items');
@@ -183,11 +191,14 @@ class OrderService
      * Delivered lines (possible on a partially-shipped, still-Paid order) have
      * already left inventory, so they're left untouched.
      *
-     * Refunds are a separate concern: PaymentService is a charge-only stub
-     * today, so issuing the money back is a deliberate follow-up, not silently
-     * skipped here.
+     * A Paid order was captured at checkout, so cancellation reverses it through
+     * PaymentService::refund (idempotent, its own ledger row). A Pending order
+     * was never captured, so there is nothing to refund. A provider failure
+     * throws and rolls the whole cancellation back — we never cancel a paid
+     * order without returning the money.
      *
      * @throws InvalidOrderTransitionException
+     * @throws \App\Exceptions\PaymentFailedException
      */
     public function cancelAsAdmin(Order $order): Order
     {
@@ -196,6 +207,10 @@ class OrderService
 
             if (! $from->canTransitionTo(OrderStatus::Cancelled)) {
                 throw new InvalidOrderTransitionException($from, OrderStatus::Cancelled);
+            }
+
+            if ($from === OrderStatus::Paid) {
+                $this->payment->refund($order);
             }
 
             $lines = $order->items()->lockForUpdate()->get();
@@ -220,6 +235,49 @@ class OrderService
 
             $order->update(['status' => OrderStatus::Cancelled]);
 
+            OrderCancelledByAdmin::dispatch($order);
+
+            return $order->fresh('items');
+        });
+    }
+
+    /**
+     * Rider-driven return: a picked-up parcel that could not be delivered and
+     * physically comes back to the vendor (6amMart's picked_up -> returned).
+     *
+     * Only this vendor's lines are touched. Unlike cancelAsAdmin — which restocks
+     * *never-shipped* (Pending) lines — a returned line was Shipped, so its stock
+     * left inventory and is now coming back: restore it under a row lock, then
+     * move the line to its own terminal Returned state. No payout is credited
+     * (delivery never completed), and the vendor's already-earned lines on the
+     * same order are left alone.
+     */
+    public function returnVendorLines(Order $order, Vendor $vendor): Order
+    {
+        return DB::transaction(function () use ($order, $vendor): Order {
+            $lines = $order->items()
+                ->where('vendor_id', $vendor->id)
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($lines as $line) {
+                // Only a Shipped line still holds decremented stock to hand back;
+                // Delivered/Cancelled/already-Returned lines are skipped.
+                if (! $line->status->canTransitionTo(FulfillmentStatus::Returned)) {
+                    continue;
+                }
+
+                $product = $this->products->findForUpdate($line->product_id);
+
+                if ($product !== null) {
+                    $this->products->incrementStock($product, $line->quantity);
+                }
+
+                $line->update(['status' => FulfillmentStatus::Returned]);
+            }
+
+            $this->syncOrderStatusFromLines($order);
+
             return $order->fresh('items');
         });
     }
@@ -232,7 +290,11 @@ class OrderService
     private function syncOrderStatusFromLines(Order $order): void
     {
         $lines = $order->items()->get(['status'])
-            ->reject(fn (OrderItem $i) => $i->status === FulfillmentStatus::Cancelled);
+            ->reject(fn (OrderItem $i) => in_array(
+                $i->status,
+                [FulfillmentStatus::Cancelled, FulfillmentStatus::Returned],
+                true,
+            ));
 
         if ($lines->isEmpty()) {
             return;

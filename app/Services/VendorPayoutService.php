@@ -6,12 +6,14 @@ use App\Enums\PayoutStatus;
 use App\Models\Payout;
 use App\Models\Vendor;
 use App\Repositories\Contracts\VendorRepositoryInterface;
+use App\Services\Contracts\DisbursementProvider;
 use Illuminate\Support\Facades\DB;
 
 class VendorPayoutService
 {
     public function __construct(
         private readonly VendorRepositoryInterface $vendors,
+        private readonly DisbursementProvider $disbursements,
     ) {}
 
     /**
@@ -37,14 +39,18 @@ class VendorPayoutService
                 return null;
             }
 
-            // TODO: call the disbursement provider here. If it throws, the
-            // transaction rolls back — the ledger row and the balance reset are
-            // both undone, leaving the balance intact for a retry.
+            // Record the row first so the disbursement carries this payout's
+            // stable id as its reference. If the provider throws, the whole
+            // transaction rolls back — row and balance reset both undone,
+            // leaving the balance intact for a retry.
             $payout = $locked->payouts()->create([
                 'amount' => $amount,
                 'status' => PayoutStatus::Completed,
                 'processed_at' => now(),
             ]);
+
+            $reference = $this->disbursements->send($amount, 'payout_'.$payout->uuid);
+            $payout->update(['reference' => $reference]);
 
             $this->vendors->resetPayoutBalance($locked);
 

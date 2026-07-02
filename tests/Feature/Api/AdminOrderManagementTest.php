@@ -4,8 +4,10 @@ namespace Tests\Feature\Api;
 
 use App\Enums\FulfillmentStatus;
 use App\Enums\OrderStatus;
+use App\Enums\PaymentStatus;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\Payment;
 use App\Models\Product;
 use App\Models\User;
 use App\Models\Vendor;
@@ -120,5 +122,47 @@ class AdminOrderManagementTest extends TestCase
             ->assertStatus(422);
 
         $this->assertSame(OrderStatus::Delivered, $order->refresh()->status);
+    }
+
+    public function test_cancelling_a_paid_order_refunds_the_captured_payment(): void
+    {
+        $vendor = Vendor::factory()->create();
+        $product = Product::factory()->for($vendor)->create(['stock' => 10]);
+        $order = Order::factory()->status(OrderStatus::Paid)->create(['total' => '40.00']);
+        OrderItem::factory()->for($order)->create([
+            'product_id' => $product->id,
+            'vendor_id' => $vendor->id,
+            'quantity' => 1,
+            'status' => FulfillmentStatus::Pending,
+        ]);
+        // The capture that cancellation must reverse.
+        Payment::factory()->create([
+            'order_id' => $order->id,
+            'idempotency_key' => 'order_'.$order->uuid,
+            'reference' => 'txn_original',
+            'status' => PaymentStatus::Succeeded,
+            'amount' => '40.00',
+        ]);
+
+        $this->actAsAdmin();
+
+        $this->patchJson("/api/admin/orders/{$order->uuid}", ['status' => 'cancelled'])->assertOk();
+
+        $this->assertSame(
+            1,
+            Payment::where('order_id', $order->id)->where('status', PaymentStatus::Refunded)->count(),
+        );
+    }
+
+    public function test_cancelling_a_pending_order_does_not_refund(): void
+    {
+        // A pending order was never captured, so there is nothing to reverse.
+        $order = Order::factory()->status(OrderStatus::Pending)->create(['total' => '40.00']);
+
+        $this->actAsAdmin();
+
+        $this->patchJson("/api/admin/orders/{$order->uuid}", ['status' => 'cancelled'])->assertOk();
+
+        $this->assertSame(0, Payment::where('status', PaymentStatus::Refunded)->count());
     }
 }

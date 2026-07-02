@@ -15,6 +15,10 @@ enum FulfillmentStatus: string
     case Shipped = 'shipped';
     case Delivered = 'delivered';
     case Cancelled = 'cancelled';
+    // A shipped parcel that came back undeliverable (rider Return path). Its own
+    // terminal state — distinct from Cancelled, which means "never shipped, stock
+    // released" — because Returned goods were dispatched and physically restocked.
+    case Returned = 'returned';
 
     public function label(): string
     {
@@ -35,13 +39,13 @@ enum FulfillmentStatus: string
     {
         return match ($this) {
             self::Pending => [self::Shipped, self::Cancelled],
-            self::Shipped => [self::Delivered],
-            self::Delivered, self::Cancelled => [],
+            self::Shipped => [self::Delivered, self::Returned],
+            self::Delivered, self::Cancelled, self::Returned => [],
         };
     }
 
     public function isFinal(): bool
     {
-        return in_array($this, [self::Delivered, self::Cancelled], true);
+        return in_array($this, [self::Delivered, self::Cancelled, self::Returned], true);
     }
 }

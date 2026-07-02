@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'stock',
     'low_stock_threshold',
     'is_active',
+    'image_path',
 ])]
 class Product extends Model
 {

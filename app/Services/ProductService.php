@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Models\Product;
 use App\Models\Vendor;
 use App\Repositories\Contracts\ProductRepositoryInterface;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class ProductService
@@ -37,6 +39,37 @@ class ProductService
         }
 
         return $this->products->update($product, $data);
+    }
+
+    /**
+     * Attach (or replace) a product's image. On replace, the previous file is
+     * deleted first so orphaned uploads don't accumulate on disk.
+     */
+    public function setImage(Product $product, UploadedFile $image): Product
+    {
+        $this->deleteImageFile($product);
+
+        return $this->products->update($product, [
+            'image_path' => $image->store('products', 'public'),
+        ]);
+    }
+
+    /**
+     * Detach a product's image: remove the file and null the column. Safe to call
+     * when there is no image (no-op on the file, still nulls the already-null column).
+     */
+    public function removeImage(Product $product): Product
+    {
+        $this->deleteImageFile($product);
+
+        return $this->products->update($product, ['image_path' => null]);
+    }
+
+    private function deleteImageFile(Product $product): void
+    {
+        if ($product->image_path) {
+            Storage::disk('public')->delete($product->image_path);
+        }
     }
 
     private function uniqueSlug(string $name): string

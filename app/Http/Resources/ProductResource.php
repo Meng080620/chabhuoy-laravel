@@ -5,6 +5,7 @@ namespace App\Http\Resources;
 use App\Models\Product;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Storage;
 
 /** @mixin Product */
 class ProductResource extends JsonResource
@@ -21,6 +22,11 @@ class ProductResource extends JsonResource
             'stock' => $this->stock,
             'in_stock' => $this->stock > 0,
             'is_active' => $this->is_active,
+            // Absolute URL so the SPA (different origin) can load it directly.
+            // Null when no image has been uploaded yet.
+            'image_url' => $this->image_path
+                ? url(Storage::disk('public')->url($this->image_path))
+                : null,
             'category' => $this->whenLoaded('category', fn () => [
                 'id' => $this->category->id,
                 'name' => $this->category->name,

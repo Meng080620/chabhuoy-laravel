@@ -45,6 +45,12 @@ class User extends Authenticatable
         return $this->hasOne(Vendor::class);
     }
 
+    /** @return HasOne<DeliveryMan, $this> */
+    public function deliveryMan(): HasOne
+    {
+        return $this->hasOne(DeliveryMan::class);
+    }
+
     /** @return HasOne<Cart, $this> */
     public function cart(): HasOne
     {
@@ -80,5 +86,10 @@ class User extends Authenticatable
     public function isAdmin(): bool
     {
         return $this->hasRole(UserRole::Admin);
+    }
+
+    public function isDeliveryMan(): bool
+    {
+        return $this->hasRole(UserRole::DeliveryMan);
     }
 }

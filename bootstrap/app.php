@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureAdminRole;
+use App\Http\Middleware\EnsureDeliveryManRole;
 use App\Http\Middleware\EnsureVendorRole;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -21,6 +22,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'vendor' => EnsureVendorRole::class,
             'admin' => EnsureAdminRole::class,
+            'delivery-man' => EnsureDeliveryManRole::class,
             'abilities' => CheckAbilities::class,
             'ability' => CheckForAnyAbility::class,
         ]);

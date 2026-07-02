@@ -7,16 +7,20 @@ use App\Enums\PaymentStatus;
 use App\Exceptions\PaymentFailedException;
 use App\Models\Order;
 use App\Models\Payment;
-use Illuminate\Support\Str;
+use App\Services\Contracts\PaymentGateway;
 
 /**
- * Boundary in front of the real payment gateway (Stripe / ABA PayWay / etc.).
- *
- * Swapping providers means editing only this class — the OrderService never
- * talks to a gateway directly. Replace the stub bodies with real SDK calls.
+ * Domain boundary in front of the payment provider. It owns the idempotency
+ * rules and the Payment ledger; the actual outbound call lives behind the
+ * injected {@see PaymentGateway} port, so swapping providers means rebinding one
+ * adapter and changing nothing here or in OrderService.
  */
 class PaymentService
 {
+    public function __construct(
+        private readonly PaymentGateway $gateway,
+    ) {}
+
     /**
      * Attempt to capture payment for an order, idempotently.
      *
@@ -53,10 +57,22 @@ class PaymentService
             throw new PaymentFailedException('A previous payment for this order failed.');
         }
 
-        // TODO: integrate real gateway here, passing $key as the provider's
-        // Idempotency-Key header. Stubbed as an immediate success so the
-        // checkout flow is exercisable end-to-end in tests and local dev.
-        $reference = 'txn_'.Str::lower(Str::random(24));
+        // The only line that actually leaves the process. A decline is recorded
+        // as a Failed row before rethrowing, so the "prior failed attempt" guard
+        // above catches a retry instead of silently re-charging.
+        try {
+            $reference = $this->gateway->charge((string) $order->total, $key);
+        } catch (PaymentFailedException $e) {
+            Payment::create([
+                'order_id' => $order->id,
+                'idempotency_key' => $key,
+                'reference' => null,
+                'status' => PaymentStatus::Failed,
+                'amount' => $order->total,
+            ]);
+
+            throw $e;
+        }
 
         Payment::create([
             'order_id' => $order->id,
@@ -67,6 +83,50 @@ class PaymentService
         ]);
 
         return $reference;
+    }
+
+    /**
+     * Reverse the capture for an order, idempotently. Returns the refund ledger
+     * row, or null when there is nothing to reverse (COD / never captured).
+     *
+     * The refund is its own append-only Payment row (status Refunded) keyed on a
+     * distinct `refund_*` idempotency key — so the original capture stays
+     * auditable and a repeated refund replays instead of reversing twice.
+     *
+     * @throws PaymentFailedException
+     */
+    public function refund(Order $order): ?Payment
+    {
+        $capture = Payment::where('order_id', $order->id)
+            ->where('status', PaymentStatus::Succeeded)
+            ->latest('id')
+            ->first();
+
+        if ($capture === null) {
+            return null; // Nothing was ever captured.
+        }
+
+        $refundKey = 'refund_'.$this->idempotencyKeyFor($order);
+
+        $existing = Payment::where('idempotency_key', $refundKey)->first();
+
+        if ($existing !== null) {
+            return $existing; // Replay: already refunded.
+        }
+
+        $reference = $this->gateway->refund(
+            (string) $capture->amount,
+            $refundKey,
+            (string) $capture->reference,
+        );
+
+        return Payment::create([
+            'order_id' => $order->id,
+            'idempotency_key' => $refundKey,
+            'reference' => $reference,
+            'status' => PaymentStatus::Refunded,
+            'amount' => $capture->amount,
+        ]);
     }
 
     /**
