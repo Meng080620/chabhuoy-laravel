@@ -19,12 +19,13 @@ class StoreOrderRequest extends FormRequest
     {
         return [
             'payment_method' => ['required', new Enum(PaymentMethod::class)],
-            // Ownership is enforced in the rule itself: the id must exist AND
-            // belong to the caller. A valid-but-someone-else's id fails as 422,
+            // Ownership is enforced in the rule itself: the uuid must exist AND
+            // belong to the caller. A valid-but-someone-else's uuid fails as 422,
             // not 404, so the existence of other users' addresses isn't probed.
             'address_id' => [
                 'required',
-                Rule::exists('addresses', 'id')->where('user_id', $this->user()?->id),
+                'string',
+                Rule::exists('addresses', 'uuid')->where('user_id', $this->user()?->id),
             ],
         ];
     }

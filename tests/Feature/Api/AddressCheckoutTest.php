@@ -34,7 +34,7 @@ class AddressCheckoutTest extends TestCase
 
         $response = $this->postJson('/api/orders', [
             'payment_method' => 'card',
-            'address_id' => $address->id,
+            'address_id' => $address->uuid,
         ]);
 
         $response->assertCreated()
@@ -61,7 +61,7 @@ class AddressCheckoutTest extends TestCase
         $address = Address::factory()->create(['user_id' => $user->id, 'city' => 'Phnom Penh']);
 
         Sanctum::actingAs($user);
-        $this->postJson('/api/orders', ['payment_method' => 'card', 'address_id' => $address->id])
+        $this->postJson('/api/orders', ['payment_method' => 'card', 'address_id' => $address->uuid])
             ->assertCreated();
 
         $address->update(['city' => 'Siem Reap']);
@@ -81,7 +81,7 @@ class AddressCheckoutTest extends TestCase
 
         $this->postJson('/api/orders', [
             'payment_method' => 'card',
-            'address_id' => $someoneElse->id,
+            'address_id' => $someoneElse->uuid,
         ])->assertStatus(422);
 
         // Nothing was placed.

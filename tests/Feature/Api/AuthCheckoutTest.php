@@ -39,9 +39,9 @@ class AuthCheckoutTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.0.id', $product->uuid);
 
-        // 3. Add to cart (absolute quantity).
+        // 3. Add to cart (absolute quantity, keyed on the public product uuid).
         $this->putJson('/api/cart', [
-            'product_id' => $product->id,
+            'product_id' => $product->uuid,
             'quantity' => 2,
         ], $auth)->assertOk();
 
@@ -59,10 +59,10 @@ class AuthCheckoutTest extends TestCase
         $address = User::where('email', 'jane@example.com')->firstOrFail()
             ->addresses()->firstOrFail();
 
-        // 5. Check out against that address.
+        // 5. Check out against that address (public uuid, as the storefront holds it).
         $checkout = $this->postJson('/api/orders', [
             'payment_method' => 'card',
-            'address_id' => $address->id,
+            'address_id' => $address->uuid,
         ], $auth);
 
         // 201: a resource backed by a just-created model reports Created.

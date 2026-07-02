@@ -36,7 +36,9 @@ class OrderController extends Controller
     {
         // Scoped to the user, so a valid-but-someone-else's address_id can't
         // resolve here even though the request rule already enforces ownership.
-        $address = $request->user()->addresses()->findOrFail($request->validated('address_id'));
+        $address = $request->user()->addresses()
+            ->where('uuid', $request->validated('address_id'))
+            ->firstOrFail();
 
         $order = $this->orders->placeFromCart(
             $request->user(),
