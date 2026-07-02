@@ -53,7 +53,9 @@ class VendorEarningsTest extends TestCase
 
     public function test_delivering_a_line_credits_the_vendor_payout_balance(): void
     {
-        $vendor = Vendor::factory()->create(['payout_balance' => 0]);
+        // Zero commission isolates the credit-on-delivery mechanics from the
+        // commission math, which is covered on its own in VendorCommissionTest.
+        $vendor = Vendor::factory()->commissionRate('0.00')->create(['payout_balance' => 0]);
         [$order] = $this->shippedLineFor($vendor, '20.00');
 
         $this->actAsVendor($vendor);
@@ -65,7 +67,7 @@ class VendorEarningsTest extends TestCase
 
     public function test_redelivering_an_already_delivered_line_does_not_double_credit(): void
     {
-        $vendor = Vendor::factory()->create(['payout_balance' => 0]);
+        $vendor = Vendor::factory()->commissionRate('0.00')->create(['payout_balance' => 0]);
         [$order] = $this->shippedLineFor($vendor, '20.00');
 
         $this->actAsVendor($vendor);
@@ -78,8 +80,8 @@ class VendorEarningsTest extends TestCase
 
     public function test_on_a_shared_order_only_the_delivering_vendor_is_credited(): void
     {
-        $vendorA = Vendor::factory()->create(['payout_balance' => 0]);
-        $vendorB = Vendor::factory()->create(['payout_balance' => 0]);
+        $vendorA = Vendor::factory()->commissionRate('0.00')->create(['payout_balance' => 0]);
+        $vendorB = Vendor::factory()->commissionRate('0.00')->create(['payout_balance' => 0]);
 
         $order = Order::factory()->status(OrderStatus::Shipped)->create();
         OrderItem::factory()->forVendor($vendorA)->create([

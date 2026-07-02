@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\UpdateVendorCommissionRequest;
 use App\Http\Requests\Admin\UpdateVendorStatusRequest;
 use App\Http\Resources\VendorResource;
 use App\Models\Vendor;
@@ -36,6 +37,18 @@ class VendorController extends Controller
     public function updateStatus(UpdateVendorStatusRequest $request, Vendor $vendor): VendorResource
     {
         $vendor->update(['status' => $request->validated('status')]);
+
+        return VendorResource::make($vendor);
+    }
+
+    /**
+     * Set the platform's take rate for this vendor. Only affects lines
+     * delivered after this call — a line's commission is frozen at the
+     * moment it's credited (see OrderService::fulfilVendorLines).
+     */
+    public function updateCommission(UpdateVendorCommissionRequest $request, Vendor $vendor): VendorResource
+    {
+        $vendor->update(['commission_rate' => $request->validated('commission_rate')]);
 
         return VendorResource::make($vendor);
     }

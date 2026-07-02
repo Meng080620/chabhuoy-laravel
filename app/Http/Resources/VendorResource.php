@@ -16,10 +16,15 @@ class VendorResource extends JsonResource
             'id' => $this->uuid,
             'name' => $this->name,
             'status' => $this->status,
-            // Balance is private to the vendor/admin; only expose when present.
+            // Balance and take rate are private to the vendor/admin — a
+            // competitor should never see another vendor's negotiated cut.
             'payout_balance' => $this->when(
                 $request->user()?->isAdmin() || $request->user()?->vendor?->id === $this->id,
                 $this->payout_balance,
+            ),
+            'commission_rate' => $this->when(
+                $request->user()?->isAdmin() || $request->user()?->vendor?->id === $this->id,
+                $this->commission_rate,
             ),
         ];
     }

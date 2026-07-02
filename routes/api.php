@@ -113,6 +113,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('reports/sales', [ReportController::class, 'sales']);
         Route::get('vendors', [AdminVendorController::class, 'index']);
         Route::patch('vendors/{vendor}', [AdminVendorController::class, 'updateStatus']);
+        Route::patch('vendors/{vendor}/commission', [AdminVendorController::class, 'updateCommission']);
         Route::get('orders', [AdminOrderController::class, 'index']);
         Route::patch('orders/{order}', [AdminOrderController::class, 'update']);
         Route::get('products', [AdminProductController::class, 'index']);

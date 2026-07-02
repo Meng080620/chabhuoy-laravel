@@ -19,6 +19,7 @@ class VendorFactory extends Factory
             'name' => fake()->company(),
             'status' => Vendor::STATUS_ACTIVE,
             'payout_balance' => 0,
+            'commission_rate' => '10.00',
         ];
     }
 
@@ -30,5 +31,10 @@ class VendorFactory extends Factory
     public function suspended(): static
     {
         return $this->state(fn () => ['status' => Vendor::STATUS_SUSPENDED]);
+    }
+
+    public function commissionRate(string $rate): static
+    {
+        return $this->state(fn () => ['commission_rate' => $rate]);
     }
 }

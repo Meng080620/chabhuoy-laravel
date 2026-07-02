@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'quantity',
     'unit_price',
     'line_total',
+    'commission_amount',
     'status',
 ])]
 class OrderItem extends Model
@@ -29,6 +30,7 @@ class OrderItem extends Model
             'quantity' => 'integer',
             'unit_price' => 'decimal:2',
             'line_total' => 'decimal:2',
+            'commission_amount' => 'decimal:2',
             'status' => FulfillmentStatus::class,
         ];
     }

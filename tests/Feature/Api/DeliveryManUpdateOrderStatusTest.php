@@ -30,7 +30,9 @@ class DeliveryManUpdateOrderStatusTest extends TestCase
     /** @return array{0: DeliveryAssignment, 1: Order, 2: Vendor} */
     private function pickedUpAssignment(DeliveryMan $rider, PaymentMethod $method = PaymentMethod::Card, string $lineTotal = '20.00'): array
     {
-        $vendor = Vendor::factory()->create();
+        // Zero commission: this suite exercises rider/wallet crediting, not
+        // vendor commission math (covered in VendorCommissionTest).
+        $vendor = Vendor::factory()->commissionRate('0.00')->create();
         $order = Order::factory()->status(OrderStatus::Shipped)->create(['payment_method' => $method]);
         OrderItem::factory()->forVendor($vendor)->create([
             'order_id' => $order->id,

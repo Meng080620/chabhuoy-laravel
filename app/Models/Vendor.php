@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['user_id', 'name', 'status', 'payout_balance'])]
+#[Fillable(['user_id', 'name', 'status', 'payout_balance', 'commission_rate'])]
 class Vendor extends Model
 {
     use HasFactory, HasUuid;
@@ -25,6 +25,7 @@ class Vendor extends Model
     {
         return [
             'payout_balance' => 'decimal:2',
+            'commission_rate' => 'decimal:2',
         ];
     }
 

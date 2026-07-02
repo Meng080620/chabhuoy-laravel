@@ -129,17 +129,25 @@ class OrderService
                     throw new InvalidFulfillmentTransitionException($line->status, $target);
                 }
 
+                $updates = ['status' => $target];
+
                 if ($target === FulfillmentStatus::Delivered) {
-                    $earned = bcadd($earned, (string) $line->line_total, 2);
+                    // Commission is computed and frozen on the line at the moment
+                    // it's realised, so a later change to the vendor's rate never
+                    // rewrites a past line's take.
+                    $commission = bcdiv(bcmul((string) $line->line_total, (string) $vendor->commission_rate, 4), '100', 2);
+                    $net = bcsub((string) $line->line_total, $commission, 2);
+
+                    $earned = bcadd($earned, $net, 2);
+                    $updates['commission_amount'] = $commission;
                 }
 
-                $line->update(['status' => $target]);
+                $line->update($updates);
             }
 
             // Delivery is when the money is realised — credit the vendor inside
             // the same transaction as the status change so the two can't drift.
-            // v1 pays the full line_total; platform commission is a deliberate
-            // follow-up (no commission model exists in the schema yet).
+            // The vendor is credited net of the platform's commission_rate.
             if (bccomp($earned, '0', 2) > 0) {
                 $this->vendors->creditPayout($vendor, $earned);
             }
