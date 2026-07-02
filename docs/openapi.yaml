@@ -1,15 +1,25 @@
 openapi: 3.1.0
 info:
   title: Chabhuoy Marketplace API
-  version: 1.0.0
+  version: 1.1.0
   description: >
     Multi-vendor marketplace API. Customers browse a catalogue, cart, and check
     out; vendors manage their products and fulfil their own order lines; admins
-    moderate vendors and read platform reports.
+    moderate the platform, run the storefront CMS, disburse payouts, and oversee
+    the delivery-man (rider) domain; riders claim and deliver assignments.
+
 
     Auth is token-based (Laravel Sanctum). Register or log in to obtain a token,
     then send it as `Authorization: Bearer <token>`. Token abilities are scoped
-    by role — a vendor token carries `vendor:manage`, an admin token `*`.
+    by role — a customer carries `customer:*`, a vendor `vendor:manage`, an admin
+    `admin:manage`, a rider `delivery:manage`.
+
+
+    Money movement (checkout capture, cancel refund, vendor/rider disbursement)
+    runs behind swappable ports with credential-free log adapters by default, so
+    every flow is exercisable end-to-end locally. Rider features (geofence, OTP,
+    proof-of-delivery photo) are config-gated in `config/delivery.php` and off by
+    default.
 servers:
   - url: http://localhost:8000/api
     description: Local
@@ -18,26 +28,31 @@ tags:
   - name: Auth
     description: Registration, login, session.
   - name: Catalogue
-    description: Public product and category browsing.
+    description: Public product, category, and storefront-CMS browsing.
   - name: Cart
-    description: The authenticated user's cart.
+    description: The authenticated customer's cart.
+  - name: Addresses
+    description: The customer's saved shipping addresses.
   - name: Orders
     description: Customer orders and checkout.
   - name: Vendor
-    description: Vendor-only product and fulfilment management.
+    description: Vendor-only product, fulfilment, and earnings management.
   - name: Admin
-    description: Admin-only moderation and reporting.
+    description: Admin-only moderation, CMS, payouts, and rider oversight.
+  - name: Rider
+    description: Delivery-man job flow, presence, and cash settlement.
 
 security:
   - bearerAuth: []
 
 paths:
+  # ------------------------------------------------------------------ Auth
   /register:
     post:
       tags: [Auth]
       summary: Register a customer and mint a token
       security: []
-      description: Rate limited to 6 requests/minute.
+      description: Rate limited. Returns `{ user, token }` (flat, not data-wrapped).
       requestBody:
         required: true
         content:
@@ -63,7 +78,9 @@ paths:
       tags: [Auth]
       summary: Exchange credentials for a token
       security: []
-      description: Rate limited to 5 attempts/minute per email+IP.
+      description: >
+        One endpoint for every role — the returned token's abilities follow the
+        user's role. Rate limited to 5 attempts/minute per email+IP.
       requestBody:
         required: true
         content:
@@ -106,6 +123,7 @@ paths:
                   data: { $ref: '#/components/schemas/User' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  # -------------------------------------------------------------- Catalogue
   /products:
     get:
       tags: [Catalogue]
@@ -115,6 +133,7 @@ paths:
         - { name: category_id, in: query, schema: { type: integer }, description: Filter by category id }
         - { name: vendor_id, in: query, schema: { type: integer } }
         - { name: search, in: query, schema: { type: string }, description: Substring match on name }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
         - { name: per_page, in: query, schema: { type: integer, default: 20 } }
       responses:
         '200':
@@ -184,12 +203,48 @@ paths:
                   data: { $ref: '#/components/schemas/Category' }
         '404': { description: No such category. }
 
+  /banners:
+    get:
+      tags: [Catalogue]
+      summary: Active storefront banners
+      security: []
+      parameters:
+        - name: type
+          in: query
+          schema: { type: string, enum: [hero, promo, eco, seasonal] }
+          description: Restrict to one storefront slot.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Banner' } }
+
+  /brand-stores:
+    get:
+      tags: [Catalogue]
+      summary: Active brand-store tiles
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/BrandStore' } }
+
+  # --------------------------------------------------------------------- Cart
   /cart:
     get:
       tags: [Cart]
       summary: Show the current cart
       responses:
-        '200': { description: OK }
+        '200': { description: 'OK — plain `{ items: [...] }`, not data-wrapped.' }
         '401': { $ref: '#/components/responses/Unauthorized' }
     put:
       tags: [Cart]
@@ -219,10 +274,83 @@ paths:
         '200': { description: Removed. }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  # ---------------------------------------------------------------- Addresses
+  /addresses:
+    get:
+      tags: [Addresses]
+      summary: List the customer's addresses
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Address' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Addresses]
+      summary: Create an address
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddressInput' }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Address' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /addresses/{address}:
+    put:
+      tags: [Addresses]
+      summary: Update an address (must own it)
+      parameters:
+        - { name: address, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddressInput' }
+      responses:
+        '200': { description: Updated. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Addresses]
+      summary: Delete an address (must own it)
+      parameters:
+        - { name: address, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Deleted. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /addresses/{address}/default:
+    patch:
+      tags: [Addresses]
+      summary: Mark an address as the default
+      parameters:
+        - { name: address, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Default set (previous default cleared). }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ------------------------------------------------------------------- Orders
   /orders:
     get:
       tags: [Orders]
       summary: List the customer's orders
+      parameters:
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: per_page, in: query, schema: { type: integer, default: 20 } }
       responses:
         '200':
           description: Paginated orders.
@@ -241,20 +369,22 @@ paths:
       tags: [Orders]
       summary: Place an order from the cart
       description: >
-        Captures payment idempotently and decrements stock atomically. Fails if
-        the cart is empty, any line is out of stock (422), a line's vendor is no
-        longer active (422), or payment is declined (402).
+        Captures payment idempotently (via the PaymentGateway port) and
+        decrements stock atomically. Fails if the cart is empty, any line is out
+        of stock (422), a line's vendor is no longer active (422), the address
+        isn't the caller's (422), or payment is declined (402).
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [payment_method]
+              required: [payment_method, address_id]
               properties:
-                payment_method:
-                  type: string
-                  enum: [card, qr, cod]
+                payment_method: { type: string, enum: [card, qr, cod] }
+                address_id:
+                  type: integer
+                  description: Must be one of the caller's own addresses.
       responses:
         '201':
           description: Order placed.
@@ -287,6 +417,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { description: Not the owner. }
 
+  # ------------------------------------------------------------------- Vendor
   /vendor/products:
     get:
       tags: [Vendor]
@@ -329,6 +460,21 @@ paths:
         '200': { description: Updated. }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
+    patch:
+      tags: [Vendor]
+      summary: Update a product (PATCH alias of PUT)
+      description: Laravel apiResource accepts either verb; body/behaviour identical to PUT.
+      parameters:
+        - { name: product, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductInput' }
+      responses:
+        '200': { description: Updated. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
     delete:
       tags: [Vendor]
       summary: Delete a product (must own it)
@@ -354,8 +500,9 @@ paths:
       description: >
         Transitions this vendor's lines to `shipped` or `delivered`. The
         order-level status is a rollup — it only becomes `shipped` once every
-        line across all vendors has shipped. 404 if the vendor has no line on
-        the order; 422 on an illegal transition (e.g. pending → delivered).
+        line across all vendors has shipped. `carrier`/`tracking_number` are
+        allowed only with `shipped`. 404 if the vendor has no line on the order;
+        422 on an illegal transition (e.g. pending → delivered).
       parameters:
         - { name: order, in: path, required: true, schema: { type: string, format: uuid } }
       requestBody:
@@ -367,6 +514,8 @@ paths:
               required: [status]
               properties:
                 status: { type: string, enum: [shipped, delivered] }
+                carrier: { type: string, nullable: true, maxLength: 100 }
+                tracking_number: { type: string, nullable: true, maxLength: 100 }
       responses:
         '200':
           description: Lines updated.
@@ -380,15 +529,205 @@ paths:
         '404': { description: Vendor has no line on this order. }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /vendor/earnings:
+    get:
+      tags: [Vendor]
+      summary: The vendor's earnings + payout ledger
+      responses:
+        '200': { description: 'OK — outstanding balance, lifetime totals, recent payouts.' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # -------------------------------------------------------------------- Admin
+  /admin/products:
+    get:
+      tags: [Admin]
+      summary: Moderation list of every vendor's products
+      description: Ignores storefront visibility (shows disabled + suspended-vendor rows).
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [active, inactive] } }
+        - { name: vendor_id, in: query, schema: { type: string, format: uuid }, description: Vendor public uuid }
+        - { name: search, in: query, schema: { type: string }, description: Name (partial) or product uuid (exact) }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: per_page, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: Paginated products.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Paginated'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/Product' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/products/{product}:
+    patch:
+      tags: [Admin]
+      summary: Toggle product visibility (by uuid)
+      description: Soft enable/disable only — price/stock stay the vendor's to edit.
+      parameters:
+        - { name: product, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [is_active]
+              properties:
+                is_active: { type: boolean }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Product' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /admin/products/{product}/image:
+    post:
+      tags: [Admin]
+      summary: Upload / replace a product image (by uuid)
+      description: multipart/form-data, field `image` (≤4 MB). Replaces any existing image.
+      parameters:
+        - { name: product, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image: { type: string, format: binary }
+      responses:
+        '200':
+          description: 'Updated product with populated `image_url`.'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Product' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Admin]
+      summary: Remove a product image (by uuid)
+      description: 'Idempotent — returns the product with `image_url` set to null.'
+      parameters:
+        - { name: product, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Image cleared.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Product' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/categories:
+    get:
+      tags: [Admin]
+      summary: Full category tree (not paginated)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Category' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin]
+      summary: Create a category
+      description: '`slug` is derived server-side. `parent_id` null = top level.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 255 }
+                parent_id: { type: integer, nullable: true }
+      responses:
+        '201': { description: Created. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /admin/categories/{category}:
+    put:
+      tags: [Admin]
+      summary: Rename / reparent a category (by numeric id)
+      parameters:
+        - { name: category, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 255 }
+                parent_id: { type: integer, nullable: true, description: Cannot be self or a descendant. }
+      responses:
+        '200': { description: Updated. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Admin]
+      summary: Delete a category (by numeric id)
+      description: Guarded — 422 if it has products or sub-categories.
+      parameters:
+        - { name: category, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Deleted. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /admin/customers:
+    get:
+      tags: [Admin]
+      summary: List customers
+      parameters:
+        - { name: search, in: query, schema: { type: string }, description: Name or email (partial) }
+        - { name: per_page, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200': { description: 'Paginated customers with order/spend aggregates.' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/customers/{user}:
+    get:
+      tags: [Admin]
+      summary: Customer detail (by numeric id)
+      description: Recent orders + saved addresses.
+      parameters:
+        - { name: user, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: OK }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: No such customer. }
+
   /admin/vendors:
     get:
       tags: [Admin]
       summary: List vendors (moderation queue)
       parameters:
-        - name: status
-          in: query
-          schema: { type: string, enum: [pending, active, suspended] }
-          description: Filter the approval queue.
+        - { name: status, in: query, schema: { type: string, enum: [pending, active, suspended] } }
+        - { name: search, in: query, schema: { type: string } }
         - { name: per_page, in: query, schema: { type: integer, default: 20 } }
       responses:
         '200':
@@ -400,9 +739,7 @@ paths:
                   - $ref: '#/components/schemas/Paginated'
                   - type: object
                     properties:
-                      data:
-                        type: array
-                        items: { $ref: '#/components/schemas/Vendor' }
+                      data: { type: array, items: { $ref: '#/components/schemas/Vendor' } }
         '403': { $ref: '#/components/responses/Forbidden' }
 
   /admin/vendors/{vendor}:
@@ -433,6 +770,246 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /admin/orders:
+    get:
+      tags: [Admin]
+      summary: List every order across customers
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [pending, paid, shipped, delivered, cancelled] } }
+        - { name: vendor_id, in: query, schema: { type: string, format: uuid } }
+        - { name: search, in: query, schema: { type: string }, description: Order uuid (exact) or customer name/email (partial) }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: per_page, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: Paginated orders (with `customer`).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Paginated'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/Order' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/orders/{order}:
+    patch:
+      tags: [Admin]
+      summary: Cancel an order (by uuid)
+      description: >
+        The only admin order action is cancellation. A Paid order is refunded via
+        the PaymentGateway port (idempotent) and its held stock restocked; a
+        shipped/delivered order is rejected (422).
+      parameters:
+        - { name: order, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [cancelled] }
+      responses:
+        '200':
+          description: Cancelled.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Order' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /admin/payouts:
+    get:
+      tags: [Admin]
+      summary: Vendor disbursement ledger
+      parameters:
+        - { name: vendor_id, in: query, schema: { type: string, format: uuid } }
+        - { name: per_page, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: Paginated payouts.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Paginated'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/Payout' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/payouts/{vendor}:
+    post:
+      tags: [Admin]
+      summary: Disburse a vendor's balance (by uuid)
+      description: >
+        Pays out the whole outstanding balance through the DisbursementProvider
+        port and zeroes it, atomically. 422 if nothing is owed; a provider
+        failure rolls back, preserving the balance.
+      parameters:
+        - { name: vendor, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '201':
+          description: Payout recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Payout' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { description: Nothing owed. }
+
+  /admin/banners:
+    get:
+      tags: [Admin]
+      summary: Every banner (active or not), ordered for editing
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Banner' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin]
+      summary: Create a banner
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/BannerInput' }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Banner' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /admin/banners/{banner}:
+    put:
+      tags: [Admin]
+      summary: Update a banner (by numeric id)
+      description: >
+        To replace the image, send `POST` with a `_method=PUT` field — PHP only
+        populates uploaded files on POST. Omit `image` to keep the current one.
+      parameters:
+        - { name: banner, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/BannerInput' }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Banner' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Admin]
+      summary: Delete a banner (by numeric id)
+      description: Hard-deletes the row and its uploaded image.
+      parameters:
+        - { name: banner, in: path, required: true, schema: { type: integer } }
+      responses:
+        '204': { description: Deleted. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/brand-stores:
+    get:
+      tags: [Admin]
+      summary: Every brand-store tile, ordered for editing
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/BrandStore' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin]
+      summary: Create a brand-store tile
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/BrandStoreInput' }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/BrandStore' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /admin/brand-stores/{brandStore}:
+    put:
+      tags: [Admin]
+      summary: Update a brand-store tile (by numeric id)
+      description: 'Image replace: `POST` + `_method=PUT` (see banners).'
+      parameters:
+        - { name: brandStore, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/BrandStoreInput' }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/BrandStore' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Admin]
+      summary: Delete a brand-store tile (by numeric id)
+      parameters:
+        - { name: brandStore, in: path, required: true, schema: { type: integer } }
+      responses:
+        '204': { description: Deleted. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/dashboard:
+    get:
+      tags: [Admin]
+      summary: One-call admin dashboard summary
+      description: KPI rail, needs-attention counts, and top-products rail.
+      responses:
+        '200': { description: OK }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /admin/reports/sales:
     get:
       tags: [Admin]
@@ -449,6 +1026,311 @@ paths:
                   gross_revenue: { type: string, example: '12450.00' }
                   top_vendors: { type: array, items: { type: object } }
                   active_vendors: { type: integer }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/delivery-men:
+    get:
+      tags: [Admin]
+      summary: List riders (approval queue)
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [pending, active, suspended] } }
+        - { name: per_page, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: Paginated riders.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Paginated'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/DeliveryMan' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/delivery-men/{deliveryMan}:
+    patch:
+      tags: [Admin]
+      summary: Approve / suspend a rider (by uuid)
+      parameters:
+        - { name: deliveryMan, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [pending, active, suspended] }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/DeliveryMan' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /admin/delivery-earnings:
+    get:
+      tags: [Admin]
+      summary: Rider disbursement ledger
+      parameters:
+        - { name: delivery_man_id, in: query, schema: { type: string, format: uuid } }
+        - { name: per_page, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: Paginated earnings.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Paginated'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/DeliveryEarning' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/delivery-earnings/{deliveryMan}:
+    post:
+      tags: [Admin]
+      summary: Disburse a rider's wallet balance (by uuid)
+      description: >
+        Pays out the rider's whole wallet via the DisbursementProvider port and
+        zeroes it, atomically. 422 if nothing is owed.
+      parameters:
+        - { name: deliveryMan, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '201':
+          description: Earning recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/DeliveryEarning' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { description: Nothing owed. }
+
+  /admin/delivery-cash-settlements:
+    get:
+      tags: [Admin]
+      summary: COD cash-settlement ledger (rider-initiated)
+      parameters:
+        - { name: delivery_man_id, in: query, schema: { type: string, format: uuid } }
+        - { name: per_page, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: Paginated settlements.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Paginated'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/CashSettlement' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # -------------------------------------------------------------------- Rider
+  /delivery-man/latest-orders:
+    get:
+      tags: [Rider]
+      summary: The unassigned pool — jobs any online rider may claim
+      parameters:
+        - { name: per_page, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: Paginated assignments.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/DeliveryAssignment' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /delivery-man/current-orders:
+    get:
+      tags: [Rider]
+      summary: This rider's active (non-terminal) jobs
+      responses:
+        '200': { description: OK }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /delivery-man/all-orders:
+    get:
+      tags: [Rider]
+      summary: This rider's full history (incl. terminal states)
+      responses:
+        '200': { description: OK }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /delivery-man/accept-order/{deliveryAssignment}:
+    patch:
+      tags: [Rider]
+      summary: Claim an unassigned job (by assignment uuid)
+      description: >
+        Guards (in order): still Available (re-checked under lock), rider online,
+        within the service zone (when the geofence is enabled), under the
+        concurrent-job limit, and the COD amount won't breach the cash ceiling.
+        The sent GPS is the geofence input and the recorded proof-of-proximity.
+      parameters:
+        - { name: deliveryAssignment, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lat, lng]
+              properties:
+                lat: { type: number, minimum: -90, maximum: 90, example: 11.5564 }
+                lng: { type: number, minimum: -180, maximum: 180, example: 104.9282 }
+      responses:
+        '200':
+          description: Accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/DeliveryAssignment' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { description: 'Not available, offline, outside the service zone, over capacity, or over the cash ceiling.' }
+
+  /delivery-man/update-order-status/{deliveryAssignment}:
+    patch:
+      tags: [Rider]
+      summary: Advance a job you own (by assignment uuid)
+      description: >
+        Transitions to `picked_up`, `delivered`, or `returned`. Delivering
+        credits the rider's flat fee (and COD cash). When configured, delivery
+        requires an `otp` and/or a `proof_photo` — send those via `POST` with a
+        `_method=PATCH` field (multipart, since PHP reads files only on POST).
+        A `returned` job restocks the vendor's lines (no credit).
+      parameters:
+        - { name: deliveryAssignment, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [picked_up, delivered, returned] }
+                otp: { type: string, nullable: true, description: 6 digits; required when configured for delivery. }
+          multipart/form-data:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [picked_up, delivered, returned] }
+                otp: { type: string, nullable: true }
+                proof_photo: { type: string, format: binary, nullable: true }
+                _method: { type: string, example: PATCH }
+      responses:
+        '200':
+          description: Advanced.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/DeliveryAssignment' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Not this rider's assignment. }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /delivery-man/update-active-status:
+    patch:
+      tags: [Rider]
+      summary: Go online / offline
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [is_online]
+              properties:
+                is_online: { type: boolean }
+      responses:
+        '200': { description: OK }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /delivery-man/record-location-data:
+    patch:
+      tags: [Rider]
+      summary: Record the rider's latest GPS
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lat, lng]
+              properties:
+                lat: { type: number, minimum: -90, maximum: 90 }
+                lng: { type: number, minimum: -180, maximum: 180 }
+      responses:
+        '200': { description: OK }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /delivery-man/update-fcm-token:
+    patch:
+      tags: [Rider]
+      summary: Store the rider's push token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fcm_token]
+              properties:
+                fcm_token: { type: string, maxLength: 255 }
+      responses:
+        '200': { description: OK }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /delivery-man/make-collected-cash-payment:
+    post:
+      tags: [Rider]
+      summary: Settle collected COD cash back to the platform
+      description: Reduces `cash_in_hand`; 422 if the amount exceeds what's held.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount]
+              properties:
+                amount: { type: string, example: '45.00', description: '> 0, ≤ cash currently held' }
+      responses:
+        '201':
+          description: Settlement recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/CashSettlement' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /delivery-man/earnings:
+    get:
+      tags: [Rider]
+      summary: The rider's wallet + cash-in-hand summary
+      responses:
+        '200': { description: OK }
         '403': { $ref: '#/components/responses/Forbidden' }
 
 components:
@@ -485,6 +1367,7 @@ components:
         name: { type: string }
         email: { type: string, format: email }
         role: { type: string, enum: [customer, vendor, admin] }
+        created_at: { type: string, format: date-time }
 
     Product:
       type: object
@@ -495,9 +1378,12 @@ components:
         description: { type: string, nullable: true }
         price: { type: string, example: '19.99' }
         stock: { type: integer }
+        in_stock: { type: boolean }
         is_active: { type: boolean }
+        image_url: { type: string, format: uri, nullable: true, description: Absolute URL; null until an image is uploaded. }
         category: { $ref: '#/components/schemas/Category' }
         vendor: { $ref: '#/components/schemas/Vendor' }
+        created_at: { type: string, format: date-time }
 
     ProductInput:
       type: object
@@ -532,6 +1418,34 @@ components:
           nullable: true
           description: Only present to the owning vendor or an admin.
 
+    Address:
+      type: object
+      properties:
+        id: { type: integer }
+        label: { type: string, nullable: true }
+        recipient_name: { type: string }
+        phone: { type: string }
+        line1: { type: string }
+        line2: { type: string, nullable: true }
+        city: { type: string }
+        postal_code: { type: string }
+        country: { type: string, description: ISO 3166-1 alpha-2 }
+        is_default: { type: boolean }
+
+    AddressInput:
+      type: object
+      required: [recipient_name, phone, line1, city, postal_code, country]
+      properties:
+        label: { type: string, nullable: true, maxLength: 255 }
+        recipient_name: { type: string, maxLength: 255 }
+        phone: { type: string, maxLength: 32 }
+        line1: { type: string, maxLength: 255 }
+        line2: { type: string, nullable: true, maxLength: 255 }
+        city: { type: string, maxLength: 120 }
+        postal_code: { type: string, maxLength: 20 }
+        country: { type: string, minLength: 2, maxLength: 2, description: ISO 3166-1 alpha-2 }
+        is_default: { type: boolean }
+
     Order:
       type: object
       properties:
@@ -541,9 +1455,22 @@ components:
         payment_method: { type: string, enum: [card, qr, cod] }
         total: { type: string, example: '40.00' }
         placed_at: { type: string, format: date-time, nullable: true }
+        customer:
+          type: object
+          nullable: true
+          description: Only on the admin listing.
+          properties:
+            id: { type: integer }
+            name: { type: string }
+            email: { type: string, format: email }
+        shipping:
+          $ref: '#/components/schemas/ShippingSnapshot'
         items:
           type: array
           items: { $ref: '#/components/schemas/OrderItem' }
+        shipments:
+          type: array
+          items: { $ref: '#/components/schemas/Shipment' }
 
     OrderItem:
       type: object
@@ -552,7 +1479,151 @@ components:
         quantity: { type: integer }
         unit_price: { type: string }
         line_total: { type: string }
-        status: { type: string, enum: [pending, shipped, delivered, cancelled] }
+        status: { type: string, enum: [pending, shipped, delivered, cancelled, returned] }
+
+    ShippingSnapshot:
+      type: object
+      nullable: true
+      description: Immutable address snapshot frozen at checkout (null on legacy rows).
+      properties:
+        recipient_name: { type: string }
+        phone: { type: string }
+        line1: { type: string }
+        line2: { type: string, nullable: true }
+        city: { type: string }
+        postal_code: { type: string }
+        country: { type: string }
+
+    Shipment:
+      type: object
+      properties:
+        carrier: { type: string, nullable: true }
+        tracking_number: { type: string, nullable: true }
+        shipped_at: { type: string, format: date-time, nullable: true }
+        vendor:
+          type: object
+          nullable: true
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+
+    Banner:
+      type: object
+      properties:
+        id: { type: integer }
+        type: { type: string, enum: [hero, promo, eco, seasonal] }
+        title: { type: string }
+        subtitle: { type: string, nullable: true }
+        image_url: { type: string, format: uri, nullable: true }
+        link_url: { type: string, nullable: true }
+        cta_label: { type: string, nullable: true }
+        position: { type: integer }
+        is_active: { type: boolean }
+
+    BannerInput:
+      type: object
+      required: [type, title]
+      properties:
+        type: { type: string, enum: [hero, promo, eco, seasonal] }
+        title: { type: string, maxLength: 255 }
+        subtitle: { type: string, nullable: true, maxLength: 255 }
+        image: { type: string, format: binary, nullable: true, description: '≤4 MB' }
+        link_url: { type: string, format: uri, nullable: true }
+        cta_label: { type: string, nullable: true, maxLength: 60 }
+        position: { type: integer, minimum: 0, nullable: true }
+        is_active: { type: boolean, description: Send as 1/0 in multipart. }
+        _method: { type: string, description: 'Set to PUT on the update endpoint.' }
+
+    BrandStore:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        caption: { type: string, nullable: true }
+        logo_url: { type: string, format: uri, nullable: true }
+        link_url: { type: string, nullable: true }
+        position: { type: integer }
+        is_active: { type: boolean }
+
+    BrandStoreInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 255 }
+        caption: { type: string, nullable: true, maxLength: 255 }
+        logo: { type: string, format: binary, nullable: true, description: '≤2 MB' }
+        link_url: { type: string, format: uri, nullable: true }
+        position: { type: integer, minimum: 0, nullable: true }
+        is_active: { type: boolean }
+        _method: { type: string, description: 'Set to PUT on the update endpoint.' }
+
+    Payout:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        vendor:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+        amount: { type: string, example: '120.00' }
+        status: { type: string, enum: [completed] }
+        reference: { type: string, nullable: true, description: 'Disbursement provider id, e.g. disb_… (log adapter by default).' }
+        processed_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    DeliveryMan:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        status: { type: string, enum: [pending, active, suspended] }
+        is_online: { type: boolean }
+        wallet_balance: { type: string, example: '0.00' }
+        cash_in_hand: { type: string, example: '0.00' }
+
+    DeliveryAssignment:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [available, accepted, picked_up, delivered, cancelled, returned] }
+        status_label: { type: string }
+        delivery_fee: { type: string, example: '3.00' }
+        cod_amount: { type: string, example: '0.00' }
+        otp: { type: string, nullable: true, description: Visible only to the assigned rider when OTP is enabled. }
+        proof_photo_url: { type: string, format: uri, nullable: true, description: Visible only to the assigned rider. }
+        accepted_at: { type: string, format: date-time, nullable: true }
+        picked_up_at: { type: string, format: date-time, nullable: true }
+        delivered_at: { type: string, format: date-time, nullable: true }
+        order:
+          type: object
+          nullable: true
+        vendor:
+          type: object
+          nullable: true
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+
+    DeliveryEarning:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        amount: { type: string, example: '90.00' }
+        status: { type: string, enum: [completed] }
+        reference: { type: string, nullable: true, description: 'Disbursement provider id (disb_…).' }
+        processed_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    CashSettlement:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        amount: { type: string, example: '45.00' }
+        delivery_man:
+          type: object
+          nullable: true
+        created_at: { type: string, format: date-time }
 
     Paginated:
       type: object
